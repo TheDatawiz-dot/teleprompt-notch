@@ -1,0 +1,40 @@
+{
+  "name": "notchprompt",
+  "version": "0.1.0",
+  "description": "A small voice-tracking teleprompter that lives under the MacBook notch.",
+  "license": "MIT",
+  "author": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js"
+  },
+  "build": {
+    "appId": "com.notchprompt.app",
+    "productName": "NotchPrompt",
+    "asar": false,
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "renderer/**/*"
+    ],
+    "mac": {
+      "target": ["dir"],
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSMicrophoneUsageDescription": "NotchPrompt listens to your own mic so it can auto-scroll your script as you read it."
+      }
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.3.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

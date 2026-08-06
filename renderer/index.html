@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>NotchPrompt</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div id="titlebar">
+      <div id="drag-handle">
+        <span class="dot" id="dot-mic" title="Microphone"></span>
+        <span class="dot" id="dot-protect" title="Hidden from screen capture"></span>
+        <span id="app-name">NotchPrompt</span>
+      </div>
+      <div id="titlebar-controls">
+        <button id="btn-settings" title="Settings">⚙</button>
+        <button id="btn-hide" title="Hide (⌘⇧N)">–</button>
+      </div>
+    </div>
+
+    <div id="status-line"></div>
+
+    <div id="edit-view">
+      <textarea id="script-input" placeholder="Paste your script here…"></textarea>
+      <div class="row">
+        <button id="btn-start-reading">Start reading ▸</button>
+      </div>
+    </div>
+
+    <div id="read-view" class="hidden">
+      <div id="script-scroll"></div>
+      <div id="read-controls">
+        <button id="btn-back-edit" title="Edit script">✎</button>
+        <button id="btn-listen">Listen 🎙</button>
+        <button id="btn-auto" title="Constant-speed auto-scroll (no mic needed)">Auto ▸</button>
+        <button id="btn-font-down">A–</button>
+        <button id="btn-font-up">A+</button>
+      </div>
+    </div>
+
+    <div id="settings-panel" class="hidden">
+      <label>Deepgram API key
+        <input id="key-deepgram" type="password" autocomplete="off" spellcheck="false">
+      </label>
+      <label>OpenAI API key
+        <input id="key-openai" type="password" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="checkbox-row">
+        <input id="key-protection" type="checkbox">
+        Hide this window from screen shares &amp; recordings
+      </label>
+      <label>Opacity
+        <input id="key-opacity" type="range" min="0.3" max="1" step="0.02">
+      </label>
+      <div class="row">
+        <button id="btn-settings-save">Save</button>
+        <button id="btn-settings-close">Close</button>
+      </div>
+      <p class="hint">Either key enables voice-tracked scrolling. Without one, use manual (↑/↓) or Auto scrolling. <span id="keychain-note"></span></p>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

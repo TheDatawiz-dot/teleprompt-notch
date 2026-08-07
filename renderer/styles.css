@@ -68,8 +68,13 @@ html, body {
 
 #read-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #script-scroll {
-  flex: 1; overflow-y: auto; padding: 14px 18px; scroll-behavior: smooth;
+  flex: 1; overflow-y: auto; padding: 14px 18px;
   -webkit-app-region: no-drag;
+  /* No scroll-behavior here: the renderer eases scrollTop itself. Declaring
+     smooth as well would hand the same scroll to two animators at once. */
+  /* Repaints stay inside this box instead of forcing the blurred backdrop
+     behind the whole window to be recomputed as the highlight moves. */
+  contain: layout paint style;
 }
 #script-scroll .line {
   line-height: 1.6; color: rgba(255,255,255,0.32);
@@ -79,15 +84,19 @@ html, body {
 #script-scroll .line.current { color: rgba(255,255,255,0.55); }
 
 /* Words already read fade back; the word being spoken is the anchor the eye
-   returns to after looking away from the screen. */
-#script-scroll .word { transition: color 0.15s, opacity 0.15s; }
+   returns to after looking away from the screen.
+   No transition on .word: the highlight moves several times a second, and a
+   per-word colour animation means dozens of elements animating at once for a
+   change the eye reads as instant anyway. */
 #script-scroll .line.current .word { color: #fff; }
 #script-scroll .word.spoken { color: rgba(255,255,255,0.28); }
 #script-scroll .line.current .word.spoken { color: rgba(255,255,255,0.4); }
 #script-scroll .word.at {
   color: #fff; font-weight: 700;
-  box-shadow: inset 0 -0.42em 0 rgba(122,162,255,0.35);
-  border-radius: 2px;
+  /* A background, not an inset box-shadow: same look, and it composites
+     without forcing a shadow repaint on the word that moves most often. */
+  background: rgba(122,162,255,0.28);
+  border-radius: 3px;
 }
 
 #read-controls {

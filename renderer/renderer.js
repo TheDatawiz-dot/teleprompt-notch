@@ -18,9 +18,29 @@
   let statusTimer = null;
 
   function showStatus(message, ms) {
+    pendingStatus = null; // a real message outranks a queued live transcript
     statusLine.textContent = message || '';
     clearTimeout(statusTimer);
     if (message && ms) statusTimer = setTimeout(() => { statusLine.textContent = ''; }, ms);
+  }
+
+  // The running transcript is glanceable feedback, not information the reader
+  // needs every revision of. It arrives as often as the recogniser changes its
+  // mind, so it is written to the DOM once a frame like everything else.
+  let pendingStatus = null;
+  let statusFrameQueued = false;
+
+  function showLiveStatus(message) {
+    pendingStatus = message;
+    if (statusFrameQueued) return;
+    statusFrameQueued = true;
+    requestAnimationFrame(() => {
+      statusFrameQueued = false;
+      if (pendingStatus === null) return;
+      clearTimeout(statusTimer);
+      statusLine.textContent = pendingStatus;
+      pendingStatus = null;
+    });
   }
 
   function applyFontSize() {
@@ -29,12 +49,19 @@
 
   // One span per word, built from the tracker's own token layout, so the word
   // highlighted on screen is by construction the word the matcher matched.
+  function lineOfWord(index) {
+    if (!wordLineIndex.length) return currentLine;
+    return wordLineIndex[Math.max(0, Math.min(index, wordLineIndex.length - 1))];
+  }
+
   function renderLines() {
     scriptScroll.innerHTML = '';
     // Rebuilt from scratch, so the incremental paint state and its node caches
     // start over with it.
     wordNodes = [];
     lineNodes = [];
+    wordLineIndex = [];
+    recent = [];
     paintedWord = -1;
     paintedLine = -1;
     layout.forEach((words, i) => {
@@ -49,6 +76,7 @@
           span.className = 'word';
           span.textContent = w.raw;
           wordNodes[w.index] = span;
+          wordLineIndex[w.index] = i;
           div.appendChild(span);
           div.appendChild(document.createTextNode(' '));
         });
@@ -69,6 +97,7 @@
   let paintedLine = -1;
   let wordNodes = [];
   let lineNodes = [];
+  let wordLineIndex = [];   // word index -> line index, for aiming the scroll ahead
 
   function paint() {
     if (paintedLine !== currentLine) {
@@ -97,20 +126,87 @@
     paintedWord = currentWord;
   }
 
-  // Interim transcripts arrive several times a second. Repainting the highlight
-  // that often is cheap, but re-issuing a smooth scrollIntoView is not — it
-  // restarts the animation on every update and reads as jitter. So scrolling is
-  // commanded only when the line actually changes.
+  // ---- motion ----
+  //
+  // Position updates arrive far faster than the screen refreshes: the recogniser
+  // revises its guess every few characters, so twenty-odd updates a second is
+  // normal. Acting on each one as it lands repeats the same work several times
+  // between frames and shows none of it.
+  //
+  // Two rules keep the motion smooth. Painting is coalesced into a single
+  // animation frame, so the display is brought up to date once per frame and
+  // always to the newest position. And scrolling eases toward a moving target
+  // instead of being re-commanded: scrollIntoView begins a fresh animation on
+  // every call, so a line change part-way through one abandoned the run in
+  // progress and started over — which is exactly what reads as stutter.
+  let frameQueued = false;
+  let scrollTarget = null;
+  let scrollAnimating = false;
+
+  // Recognition is about eight tenths of a second behind the speaker — measured,
+  // and inherent to transcribing audio rather than anything this app can tune
+  // away. Chasing it with the scroll is what feels like lag: by the time a word
+  // is confirmed the reader is already two words past it, so the text they need
+  // is always arriving late.
+  //
+  // So the highlight and the scroll are decoupled. The highlight stays honest,
+  // marking the last word actually recognised. The scroll aims slightly ahead of
+  // it, at where the reader has probably got to, and sits that point above the
+  // middle of the window so the line being read has its continuation in view
+  // rather than the text already spoken.
+  const LEAD_SECONDS = 0.6;   // a little under the measured delay, to avoid overshooting
+  const MAX_LEAD_WORDS = 6;
+  const ANCHOR = 0.4;         // fraction of the window height above the read line
+
+  let recent = [];            // timestamps of confirmed word positions, for pace
+
   function applyPosition(at) {
     if (!at) return;
-    const lineChanged = at.lineIndex !== currentLine;
     currentLine = at.lineIndex;
     currentWord = at.wordIndex;
-    paint();
-    if (lineChanged) {
-      const target = lineNodes[at.lineIndex];
-      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    recent.push({ t: performance.now(), word: at.wordIndex });
+    if (recent.length > 12) recent.shift();
+    if (frameQueued) return;
+    frameQueued = true;
+    requestAnimationFrame(() => {
+      frameQueued = false;
+      paint();
+      aimScroll();
+    });
+  }
+
+  // Words per second over the last few updates. Falls to zero when the reader
+  // stops, which parks the lead rather than letting it run away.
+  function readingPace() {
+    if (recent.length < 3) return 0;
+    const first = recent[0], last = recent[recent.length - 1];
+    const seconds = (last.t - first.t) / 1000;
+    if (seconds < 0.4) return 0;
+    const words = last.word - first.word;
+    if (words <= 0) return 0;
+    return Math.min(words / seconds, 6); // faster than this is a jump, not reading
+  }
+
+  function aimScroll() {
+    const lead = Math.min(Math.round(readingPace() * LEAD_SECONDS), MAX_LEAD_WORDS);
+    const node = lineNodes[lineOfWord(currentWord + lead)] || lineNodes[currentLine];
+    if (!node) return;
+    const anchored = node.offsetTop - scriptScroll.clientHeight * ANCHOR + node.offsetHeight / 2;
+    const limit = Math.max(0, scriptScroll.scrollHeight - scriptScroll.clientHeight);
+    scrollTarget = Math.max(0, Math.min(anchored, limit));
+    if (scrollAnimating) return; // the running loop picks up the new target
+    scrollAnimating = true;
+    requestAnimationFrame(function stepScroll() {
+      const remaining = scrollTarget - scriptScroll.scrollTop;
+      if (Math.abs(remaining) < 0.5) {
+        scriptScroll.scrollTop = scrollTarget;
+        scrollAnimating = false;
+        return;
+      }
+      // Eases out: quick while far behind, gentle over the last few pixels.
+      scriptScroll.scrollTop += remaining * 0.16;
+      requestAnimationFrame(stepScroll);
+    });
   }
 
   // ---- edit <-> read ----
@@ -252,8 +348,8 @@
   // ---- main-process events ----
   notch.on('script:loaded', ({ text }) => { if (text) scriptInput.value = text; });
   notch.on('scroll:to', applyPosition);
-  notch.on('stt:interim', ({ text }) => showStatus('hearing: ' + text));
-  notch.on('stt:final', ({ text }) => showStatus('heard: ' + text, 2500));
+  notch.on('stt:interim', ({ text }) => showLiveStatus('hearing: ' + text));
+  notch.on('stt:final', ({ text }) => showLiveStatus('heard: ' + text));
   notch.on('status', ({ message }) => showStatus(message, 6000));
   notch.on('listening:state', ({ active, transcribing }) => {
     const on = active && transcribing;

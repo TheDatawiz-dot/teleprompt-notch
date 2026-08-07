@@ -173,9 +173,9 @@
       return;
     }
     const r = await notch.startListening();
-    // No provider, or no microphone: either way nothing will ever be heard, so
-    // don't leave the button reading "Stop" as though it were working.
-    if (!r.streaming || !(await startMic())) {
+    // No transcriber, or no microphone: either way nothing will ever be heard,
+    // so don't leave the button reading "Stop" as though it were working.
+    if (!r.transcribing || !(await startMic())) {
       await notch.stopListening();
       setListenButton(false);
       return;
@@ -187,8 +187,6 @@
   document.getElementById('btn-listen').addEventListener('click', toggleListening);
 
   // ---- settings ----
-  const keyDeepgram = document.getElementById('key-deepgram');
-  const keyOpenai = document.getElementById('key-openai');
   const keyProtection = document.getElementById('key-protection');
   const keyOpacity = document.getElementById('key-opacity');
 
@@ -198,28 +196,19 @@
 
   document.getElementById('btn-settings').addEventListener('click', async () => {
     const s = await notch.settingsGet();
-    keyDeepgram.value = '';
-    keyOpenai.value = '';
-    // Only presence crosses the bridge — the key itself never leaves the main process.
-    keyDeepgram.placeholder = s.keys.deepgram ? '•••• saved' : 'paste to set';
-    keyOpenai.placeholder = s.keys.openai ? '•••• saved' : 'paste to set';
     keyProtection.checked = !!s.contentProtection;
     keyOpacity.value = String(s.opacity);
-    document.getElementById('keychain-note').textContent = s.keychain
-      ? 'Keys are encrypted in your login Keychain.'
-      : 'No OS keychain available — keys are stored unencrypted on this machine.';
+    document.getElementById('voice-note').textContent = s.voiceTracking
+      ? 'Voice tracking runs on this Mac — no account, no API key, and no audio leaves the device. Manual scrolling: ↑/↓ or Auto.'
+      : (s.voiceTrackingNote || '');
     settingsPanel.classList.remove('hidden');
   });
   document.getElementById('btn-settings-close').addEventListener('click', () => settingsPanel.classList.add('hidden'));
   document.getElementById('btn-settings-save').addEventListener('click', async () => {
-    const patch = { apiKeys: {}, opacity: Number(keyOpacity.value) };
-    if (keyDeepgram.value) patch.apiKeys.deepgram = keyDeepgram.value;
-    if (keyOpenai.value) patch.apiKeys.openai = keyOpenai.value;
-    await notch.settingsSet(patch);
+    const opacity = Number(keyOpacity.value);
+    await notch.settingsSet({ opacity });
     await notch.setProtection(keyProtection.checked);
-    keyDeepgram.value = '';
-    keyOpenai.value = '';
-    applyOpacity(patch.opacity);
+    applyOpacity(opacity);
     settingsPanel.classList.add('hidden');
     showStatus('Settings saved.', 2500);
   });
@@ -233,8 +222,8 @@
   notch.on('stt:interim', ({ text }) => showStatus('hearing: ' + text));
   notch.on('stt:final', ({ text }) => showStatus('heard: ' + text, 2500));
   notch.on('status', ({ message }) => showStatus(message, 6000));
-  notch.on('listening:state', ({ active, streaming }) => {
-    const on = active && streaming;
+  notch.on('listening:state', ({ active, transcribing }) => {
+    const on = active && transcribing;
     dotMic.className = 'dot' + (on ? ' on' : '');
     if (!on && listening) { stopMic(); listening = false; setListenButton(false); }
   });

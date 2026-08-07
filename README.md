@@ -49,33 +49,35 @@ NotchPrompt everywhere macOS shows it. Hiding a window from a *recording* is a
 framing choice; lying about what software is running is a different thing, and
 this app does not do it.
 
-## Works without an API key
+## Transcription is built in
 
-Voice tracking needs a speech-to-text provider. Without one, the app is still a
-perfectly usable teleprompter:
+There is no API key, no account, and no sign-up. Recognition runs on this Mac
+through the Speech framework's `SpeechAnalyzer`, in a small Swift helper the
+app spawns (`native/Transcriber.swift`). Your audio is never sent anywhere —
+not to Apple, not to us. The app makes no network requests at all.
 
-| Mode | Needs a key | How it moves |
-|---|---|---|
-| Voice tracking | yes | follows your speech |
-| `Auto` | no | constant speed, start/stop |
-| `↑` / `↓` | no | one line at a time |
-| Click a line | no | jump there |
+The helper deliberately uses `SpeechAnalyzer` rather than the older
+`SFSpeechRecognizer`. Two reasons, both learned the hard way:
 
-Add a key via ⚙. [Deepgram](https://console.deepgram.com/) is the better choice
-(purpose-built streaming STT, lowest latency, free tier); an OpenAI key also
-works.
+- `SFSpeechRecognizer` is gated behind the **Speech Recognition** privacy
+  permission, and a spawned command-line helper cannot obtain it — macOS has no
+  app bundle to show a prompt for, so the request is denied outright and the
+  user is never asked. It never even appears in System Settings to be allowed.
+- Its on-device mode is opt-in. Left unset it streams audio to Apple's servers,
+  which is what System Settings warns about, and the wrong default for this app.
 
-### Where your key goes
+`SpeechAnalyzer` is on-device by construction and needs no such permission. The
+only permission NotchPrompt asks for is the **microphone**.
 
-Keys are encrypted with Electron's `safeStorage` — backed by your login Keychain
-on macOS — so the settings file on disk holds a ciphertext blob, not a usable
-credential, and is written `0600`. Keys stay in the main process and are never
-handed to the window that renders your script; the UI is only ever told
-*whether* a key is set.
+If it is unavailable — non-macOS, macOS below 26, or the helper was not built —
+the app says so and manual scrolling carries on working:
 
-Audio goes to whichever provider you configured, and nowhere else. There is no
-server of ours in the loop, no telemetry, and no LLM call anywhere in the app —
-position tracking is plain string alignment running locally.
+| Mode | How it moves |
+|---|---|
+| Voice tracking | follows your speech |
+| `Auto` | constant speed, start/stop |
+| `↑` / `↓` | one line at a time |
+| Click a line | jump there |
 
 ## Shortcuts
 
@@ -94,7 +96,8 @@ of leaving you with a key that quietly does nothing.
 ## Development
 
 ```bash
-npm test     # 20 tests over the alignment and navigation logic
+npm test              # 20 tests over the alignment and navigation logic
+npm run build:native  # rebuild just the Swift helper
 ```
 
 The tracker is the part worth testing, and the suite is mostly regressions for
@@ -110,9 +113,15 @@ NOTCHPROMPT_NO_PROTECT=1 npm start
 
 ## Limitations
 
-- **macOS-first.** "Under the notch" is a Mac idea. It runs elsewhere and simply
-  anchors top-center, but content protection and Mission Control hiding are only
-  verified on macOS.
+- **macOS-only for voice.** "Under the notch" is a Mac idea to begin with. The
+  window runs elsewhere and anchors top-center, but transcription, content
+  protection, and Mission Control hiding are macOS-only.
+- **Voice tracking needs macOS 26 or later.** `SpeechAnalyzer` was introduced in
+  macOS 26; on anything older the app runs, says voice tracking is unavailable,
+  and leaves you the manual modes.
+- **The Swift helper needs the Xcode Command Line Tools to build.** `npm install`
+  compiles it; without a toolchain the build is skipped with a message rather
+  than failing the install.
 - **Tracking is only as good as the transcription.** Heavy accents, background
   noise, or a bad mic degrade it. The manual modes are always there as a floor.
 - **It matches words, not meaning.** Paraphrase the script heavily and it will

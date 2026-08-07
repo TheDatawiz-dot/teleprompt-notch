@@ -2,12 +2,12 @@ const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electro
 const path = require('path');
 const store = require('./src/store');
 const { AdaptiveVAD } = require('./src/vad');
-const { createStreamingSTT } = require('./src/stt-streaming');
+const { createLocalSTT, isAvailable: sttAvailable, unavailableReason } = require('./src/stt-local');
 const { createScriptTracker } = require('./src/script-tracker');
 
 let win = null;
 let tracker = createScriptTracker('');
-let streamingSTT = null;
+let stt = null;
 let listening = false;
 const vad = new AdaptiveVAD({
   onsetThreshold: 220,
@@ -89,72 +89,67 @@ function createWindow() {
   });
 }
 
-// -------- listening (mic -> VAD -> streaming STT -> script tracker) --------
+// -------- listening (mic -> VAD -> on-device STT -> script tracker) --------
 function startListening() {
-  if (listening) return { active: true, streaming: !!streamingSTT };
-  const settings = store.getSettings();
-  const keys = settings.apiKeys || {};
-  listening = true;
+  if (listening) return { active: true, transcribing: !!stt };
 
-  if (keys.deepgram || keys.openai) {
-    const result = createStreamingSTT(settings, 'you', {
-      onTranscript: (_channel, text) => {
-        send('stt:final', { text });
-        const at = tracker.feedTranscript(text);
-        if (at) send('scroll:to', at);
-      },
-      onInterim: (_channel, text) => {
-        send('stt:interim', { text });
-        const at = tracker.feedProvisional(text);
-        if (at) send('scroll:to', at);
-      },
-      onError: (err) => {
-        send('status', { message: `Transcription (${err.provider}) error: ${err.message}. Switching to manual scroll.` });
-        stopListening();
-      },
-      onStatusChange: (_channel, status) => send('stt:status', { status })
-    });
-    if (result.type === 'streaming' && result.instance) {
-      streamingSTT = result.instance;
-      streamingSTT.connect();
-    }
-  } else {
-    send('status', { message: 'No Deepgram/OpenAI key set — using manual scroll instead of voice tracking.' });
+  const blocked = unavailableReason();
+  if (blocked) {
+    send('status', { message: blocked });
+    return { active: false, transcribing: false };
   }
 
-  send('listening:state', { active: true, streaming: !!streamingSTT });
-  return { active: true, streaming: !!streamingSTT };
+  stt = createLocalSTT({
+    onReady: () => send('status', { message: 'Listening — on-device, nothing leaves this Mac.' }),
+    onTranscript: (text) => {
+      send('stt:final', { text });
+      const at = tracker.feedTranscript(text);
+      if (at) send('scroll:to', at);
+    },
+    onInterim: (text) => {
+      send('stt:interim', { text });
+      const at = tracker.feedProvisional(text);
+      if (at) send('scroll:to', at);
+    },
+    onError: (message) => {
+      send('status', { message: message + ' Manual scrolling still works.' });
+      stopListening();
+    },
+    onExit: () => stopListening()
+  });
+
+  if (!stt.start()) { stt = null; return { active: false, transcribing: false }; }
+
+  listening = true;
+  send('listening:state', { active: true, transcribing: true });
+  return { active: true, transcribing: true };
 }
 
 function stopListening() {
   listening = false;
-  if (streamingSTT) { streamingSTT.disconnect(); streamingSTT = null; }
+  if (stt) { stt.stop(); stt = null; }
   vad.reset();
-  send('listening:state', { active: false, streaming: false });
-  return { active: false, streaming: false };
+  send('listening:state', { active: false, transcribing: false });
+  return { active: false, transcribing: false };
 }
 
 // -------- IPC --------
-// The renderer needs to show whether a key is configured, never the key itself,
-// so credentials stay in the main process rather than crossing into a window
-// that also renders arbitrary pasted text.
-function safeSettings() {
-  const { apiKeys, ...rest } = store.getSettings();
-  return { ...rest, keys: store.keyPresence(), keychain: store.encryptionAvailable() };
-}
-
-ipcMain.handle('settings:get', () => safeSettings());
-ipcMain.handle('settings:set', (_e, patch) => { store.setSettings(patch); return safeSettings(); });
+ipcMain.handle('settings:get', () => ({
+  ...store.getSettings(),
+  voiceTracking: sttAvailable(),
+  voiceTrackingNote: unavailableReason()
+}));
+ipcMain.handle('settings:set', (_e, patch) => store.setSettings(patch));
 
 ipcMain.handle('listening:start', () => startListening());
 ipcMain.handle('listening:stop', () => stopListening());
 ipcMain.on('mic:pcm', (_e, arrayBuffer) => {
   if (!listening) return;
-  // VAD drives the mic indicator only. The audio itself is streamed
-  // unconditionally: Deepgram and OpenAI both run their own endpointing, and
-  // withholding the quiet parts makes their segmentation worse, not cheaper.
+  // VAD drives the mic indicator only. The audio itself is forwarded
+  // unconditionally: the Speech framework does its own endpointing, and
+  // withholding the quiet parts makes its segmentation worse, not better.
   vad.processChunk(Buffer.from(arrayBuffer));
-  if (streamingSTT) streamingSTT.sendAudio(arrayBuffer);
+  if (stt) stt.sendAudio(arrayBuffer);
 });
 
 ipcMain.handle('script:set', (_e, text) => {

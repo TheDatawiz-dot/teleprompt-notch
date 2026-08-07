@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Deliberately no CFBundleIdentifier. With one, TCC treats this helper as a
+       privacy subject in its own right — but a bare command-line tool is not an
+       app bundle it can show a prompt for, so the request is denied outright.
+       Without one, the request is attributed to the app that spawned it, which
+       does carry the usage description and can prompt. -->
+  <key>CFBundleName</key>
+  <string>NotchPrompt Transcriber</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>NotchPrompt transcribes your speech on this Mac so your script can scroll in time with your reading.</string>
+</dict>
+</plist>

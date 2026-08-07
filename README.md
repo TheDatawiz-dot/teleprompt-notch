@@ -33,6 +33,13 @@ It also handles the messy parts of real reading:
   position instead of jumping backwards.
 - **Filler and misheard words.** "Um", "sorry", and transcription errors cost a
   small penalty rather than breaking the match.
+- **Words the recogniser spells its own way.** Your script says *Kubernetes*;
+  the transcript says *Cubanets*. Matching falls back to what the words *sound*
+  like, so a mangled proper noun still tracks. Measured on a dictionary of
+  174,000 words, unrelated pairs collide this way 0.06% of the time, and one
+  weak match alone is never enough to move the cursor.
+- **The same thing written two ways.** "let's" and "let us", "5" and "five",
+  "1st" and "first", "recognise" and "recognize" all count as matches.
 - **Continuous tracking.** It follows in-flight (interim) transcripts, not just
   finalized ones, so the script moves while you speak instead of lurching
   forward every time you pause for breath.
@@ -103,7 +110,13 @@ npm run build:native  # rebuild just the Swift helper
 The tracker is the part worth testing, and the suite is mostly regressions for
 bugs that actually happened: LCS tunnelling through repeated sentence templates,
 interim transcripts poisoning the match history, and manual navigation
-deadlocking on the blank line between paragraphs.
+deadlocking on the blank line between paragraphs. The phonetic tests use the
+actual output the on-device recogniser produced, not invented examples.
+
+The script's vocabulary is also handed to the recogniser as context. On
+synthesised speech this changed no output at all — the model is already
+confident there — so it is kept as the documented hint it is rather than
+advertised as an improvement; the phonetic fallback is what does the work.
 
 To see the window in your own screen recordings while working on it:
 

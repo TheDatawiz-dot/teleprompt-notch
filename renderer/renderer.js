@@ -31,6 +31,12 @@
   // highlighted on screen is by construction the word the matcher matched.
   function renderLines() {
     scriptScroll.innerHTML = '';
+    // Rebuilt from scratch, so the incremental paint state and its node caches
+    // start over with it.
+    wordNodes = [];
+    lineNodes = [];
+    paintedWord = -1;
+    paintedLine = -1;
     layout.forEach((words, i) => {
       const div = document.createElement('div');
       div.className = 'line';
@@ -41,27 +47,54 @@
         words.forEach((w) => {
           const span = document.createElement('span');
           span.className = 'word';
-          span.dataset.index = String(w.index);
           span.textContent = w.raw;
+          wordNodes[w.index] = span;
           div.appendChild(span);
           div.appendChild(document.createTextNode(' '));
         });
       }
+      lineNodes[i] = div;
       div.addEventListener('click', () => notch.jump(i).then(applyPosition));
       scriptScroll.appendChild(div);
     });
     paint();
   }
 
+  // Interim results arrive several times a second. Re-deriving every word's
+  // classes each time is O(script length) per update, which on a long script
+  // means tens of thousands of DOM writes a second for a highlight that moved
+  // by one word. Only the span that gained the cursor, the ones it passed, and
+  // the line that changed are touched.
+  let paintedWord = -1;
+  let paintedLine = -1;
+  let wordNodes = [];
+  let lineNodes = [];
+
   function paint() {
-    scriptScroll.querySelectorAll('.line').forEach((n) => {
-      n.classList.toggle('current', Number(n.dataset.line) === currentLine);
-    });
-    scriptScroll.querySelectorAll('.word').forEach((n) => {
-      const i = Number(n.dataset.index);
-      n.classList.toggle('spoken', i < currentWord);
-      n.classList.toggle('at', i === currentWord);
-    });
+    if (paintedLine !== currentLine) {
+      if (lineNodes[paintedLine]) lineNodes[paintedLine].classList.remove('current');
+      if (lineNodes[currentLine]) lineNodes[currentLine].classList.add('current');
+      paintedLine = currentLine;
+    }
+    if (paintedWord === currentWord) return;
+
+    if (wordNodes[paintedWord]) wordNodes[paintedWord].classList.remove('at');
+    // Everything between the old and new cursor becomes read text. Walking the
+    // gap keeps a jump (click, arrow key) correct without a full repaint.
+    if (currentWord > paintedWord) {
+      for (let i = Math.max(0, paintedWord); i < currentWord; i++) {
+        if (wordNodes[i]) wordNodes[i].classList.add('spoken');
+      }
+    } else {
+      for (let i = currentWord; i <= paintedWord && i < wordNodes.length; i++) {
+        if (wordNodes[i]) wordNodes[i].classList.remove('spoken');
+      }
+    }
+    if (wordNodes[currentWord]) {
+      wordNodes[currentWord].classList.add('at');
+      wordNodes[currentWord].classList.remove('spoken');
+    }
+    paintedWord = currentWord;
   }
 
   // Interim transcripts arrive several times a second. Repainting the highlight
@@ -75,7 +108,7 @@
     currentWord = at.wordIndex;
     paint();
     if (lineChanged) {
-      const target = scriptScroll.querySelector('.line[data-line="' + at.lineIndex + '"]');
+      const target = lineNodes[at.lineIndex];
       if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }

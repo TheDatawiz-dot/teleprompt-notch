@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { createScriptTracker, tokenizeScript, alignSubsequence, normalizeWord } = require('../src/script-tracker');
+const { createScriptTracker, tokenizeScript, tokenizeSpoken, alignSubsequence, normalizeWord, withinEditDistance, phoneticKey } = require('../src/script-tracker');
 
 const SCRIPT = [
   'Welcome to the show today.',
@@ -176,4 +176,123 @@ test('a long script stays responsive', () => {
   for (let i = 0; i < 200; i++) t.feedProvisional('with several ordinary words');
   const elapsed = Date.now() - started;
   assert.ok(elapsed < 2000, `200 updates took ${elapsed}ms — matching should be windowed, not whole-script`);
+});
+
+// ---- tolerance for the ways a recogniser and a script legitimately disagree ----
+
+test('a contraction matches its written-out form, and the reverse', () => {
+  const t = createScriptTracker('Let us cover the basics.\nWe are going to begin.');
+  // Script says "Let us"; the recogniser wrote "Let's".
+  assert.ok(t.feedTranscript("let's cover the basics"), 'contraction should match the expansion');
+  assert.equal(t.currentLine, 1);
+
+  const t2 = createScriptTracker("Let's cover the basics.\nWe are going to begin.");
+  // Script says "Let's"; the recogniser wrote it out.
+  assert.ok(t2.feedTranscript('let us cover the basics'), 'expansion should match the contraction');
+  assert.equal(t2.currentLine, 1);
+});
+
+test('digits in the script match spoken number words', () => {
+  const t = createScriptTracker('We raised 5 million dollars.\nThat is the headline.');
+  assert.ok(t.feedTranscript('we raised five million dollars'));
+  assert.equal(t.currentLine, 1);
+});
+
+test('number words in the script match transcribed digits', () => {
+  const t = createScriptTracker('There are twenty people here.\nNext line.');
+  assert.ok(t.feedTranscript('there are 20 people here'));
+  assert.equal(t.currentLine, 1);
+});
+
+test('ordinals match their spoken form', () => {
+  const t = createScriptTracker('The 1st thing to know.\nThe second thing.');
+  assert.ok(t.feedTranscript('the first thing to know'));
+  assert.equal(t.currentLine, 1);
+});
+
+test('a near-miss on a long word still counts', () => {
+  // British/American spelling is the everyday case; the reader said the word.
+  const t = createScriptTracker('We recognise the difference.\nOn to the next point.');
+  assert.ok(t.feedTranscript('we recognize the difference'));
+  assert.equal(t.currentLine, 1);
+});
+
+test('short lookalike words are not fuzzy-matched into each other', () => {
+  // "cat"/"cap"/"car" differ by one letter but are plainly different words.
+  const t = createScriptTracker('The cat sat down.');
+  assert.equal(t.feedTranscript('the cap sad down'), null,
+    'one-letter differences on short words must not carry a match');
+});
+
+test('withinEditDistance respects its limit', () => {
+  assert.ok(withinEditDistance('recognise', 'recognize', 1));
+  assert.ok(!withinEditDistance('kitten', 'sitting', 1));
+  assert.ok(withinEditDistance('kitten', 'kitten', 0));
+  assert.ok(!withinEditDistance('short', 'muchlongerword', 1));
+});
+
+test('tokenizeSpoken expands contractions into separate tokens', () => {
+  assert.equal(tokenizeSpoken("let's go").length, 3);   // let + us + go
+  assert.equal(tokenizeSpoken('let us go').length, 3);
+});
+
+test('vocabulary offers the script\'s distinctive words, longest first', () => {
+  const t = createScriptTracker('We deployed Kubernetes to the staging cluster today.');
+  const vocab = t.vocabulary();
+  assert.ok(vocab.includes('Kubernetes'), 'distinctive words are included');
+  assert.ok(!vocab.includes('to'), 'short filler words are not worth biasing');
+  assert.ok(vocab[0].length >= vocab[vocab.length - 1].length, 'longest first');
+});
+
+test('vocabulary strips punctuation and de-duplicates', () => {
+  const t = createScriptTracker('"Kubernetes," again: Kubernetes!');
+  const vocab = t.vocabulary();
+  assert.deepEqual(vocab.filter((w) => w.toLowerCase() === 'kubernetes'), ['Kubernetes']);
+});
+
+test('vocabulary is capped', () => {
+  const many = Array.from({ length: 1000 }, (_, i) => `distinctword${i}`).join(' ');
+  assert.ok(createScriptTracker(many).vocabulary(50).length <= 50);
+});
+
+// ---- phonetic fallback: the reader said the word, the recogniser misspelt it ----
+
+test('a misheard proper noun still tracks, via its sound', () => {
+  // Exactly what the on-device recogniser produced for this sentence.
+  const t = createScriptTracker('We deployed Kubernetes with Grafana dashboards.\nThen we shipped it.');
+  assert.ok(t.feedTranscript('we deployed Cubanets with Grafana dashboards'),
+    '"Cubanets" is what was heard; the reader said Kubernetes');
+  assert.equal(t.currentLine, 1);
+});
+
+test('an invented name survives being spelled differently', () => {
+  const t = createScriptTracker('Our engineer Zylphra Kandrix presents.\nNext slide.');
+  assert.ok(t.feedTranscript('our engineer Zilfra Kendricks presents'));
+  assert.equal(t.currentLine, 1);
+});
+
+test('phonetic matching does not fuse plainly different words', () => {
+  const t = createScriptTracker('The first topic is speed.');
+  // "third"/"cost" are nothing like "first"/"speed" — no match should be found.
+  assert.equal(t.feedTranscript('the third topic is cost') === null, false,
+    'the shared words "the topic is" legitimately match');
+  const t2 = createScriptTracker('Alpha bravo charlie.');
+  assert.equal(t2.feedTranscript('delta echo foxtrot'), null);
+});
+
+test('phoneticKey ignores spelling that does not change the sound', () => {
+  assert.equal(phoneticKey('Zylphra'), phoneticKey('Zilfra'));
+  assert.equal(phoneticKey('recognise'), phoneticKey('recognize'));
+  assert.equal(phoneticKey('Grafana'), phoneticKey('Graphana'));
+});
+
+test('phoneticKey keeps genuinely different words apart', () => {
+  assert.notEqual(phoneticKey('speed'), phoneticKey('speak'));
+  assert.notEqual(phoneticKey('first'), phoneticKey('third'));
+  assert.notEqual(phoneticKey('welcome'), phoneticKey('output'));
+});
+
+test('phoneticKey handles empty and punctuation-only input', () => {
+  assert.equal(phoneticKey(''), '');
+  assert.equal(phoneticKey('—'), '');
 });

@@ -36,10 +36,19 @@ func lastWords(_ text: String, _ limit: Int) -> String {
     return parts.suffix(limit).joined(separator: " ")
 }
 
+// Words from the script, used to bias recognition. Passed as a file rather than
+// on argv: a script's vocabulary runs to hundreds of entries and can contain
+// anything, neither of which belongs in a command line.
+func loadVocabulary(_ path: String?) -> [String] {
+    guard let path, let text = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+    return text.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+}
+
 @main
 struct Main {
     static func main() async {
         let requested = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "en-US"
+        let vocabulary = loadVocabulary(CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : nil)
 
         guard SpeechTranscriber.isAvailable else {
             emit(["type": "error", "message": "On-device speech recognition is not available on this Mac."])
@@ -52,7 +61,15 @@ struct Main {
             exit(1)
         }
 
-        let transcriber = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
+        // Volatile results are what let the script follow speech continuously
+        // rather than only at pauses; alternatives give the matcher a second
+        // hypothesis to try when the top one does not line up with the script.
+        let transcriber = SpeechTranscriber(
+            locale: locale,
+            transcriptionOptions: [],
+            reportingOptions: [.volatileResults, .alternativeTranscriptions],
+            attributeOptions: []
+        )
 
         // The language model is a downloadable asset. Ask for it rather than
         // failing: on a Mac that has never used dictation it will not be present.
@@ -81,7 +98,24 @@ struct Main {
         }
 
         let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
+
+        // A teleprompter knows what is about to be said, so the script's own
+        // vocabulary is offered to the recogniser as context. Measured on
+        // synthesised speech this changed no output at all — the model is
+        // already confident there — so it is kept as the documented hint it is,
+        // not relied upon. The matcher's phonetic fallback is what actually
+        // rescues a misspelt proper noun.
+        let context = AnalysisContext()
+        if !vocabulary.isEmpty {
+            context.contextualStrings = [.general: vocabulary]
+        }
+
+        let analyzer = SpeechAnalyzer(
+            inputSequence: stream,
+            modules: [transcriber],
+            options: nil,
+            analysisContext: context
+        )
 
         // Results arrive as a growing "volatile" transcript for the current
         // utterance, then once more marked final. Both drive the scroll: the
@@ -92,8 +126,15 @@ struct Main {
                 for try await result in transcriber.results {
                     let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
                     if text.isEmpty { continue }
-                    emit(["type": result.isFinal ? "final" : "interim",
-                          "text": lastWords(text, EMIT_WORD_LIMIT)])
+                    var payload: [String: Any] = [
+                        "type": result.isFinal ? "final" : "interim",
+                        "text": lastWords(text, EMIT_WORD_LIMIT)
+                    ]
+                    let alternatives = result.alternatives
+                        .map { lastWords(String($0.characters).trimmingCharacters(in: .whitespacesAndNewlines), EMIT_WORD_LIMIT) }
+                        .filter { !$0.isEmpty && $0 != payload["text"] as? String }
+                    if !alternatives.isEmpty { payload["alternatives"] = Array(alternatives.prefix(3)) }
+                    emit(payload)
                 }
             } catch {
                 emit(["type": "error", "message": "Speech recognition stopped: \(error.localizedDescription)"])
@@ -101,14 +142,10 @@ struct Main {
             }
         }
 
-        do {
-            try await analyzer.start(inputSequence: stream)
-        } catch {
-            emit(["type": "error", "message": "Could not start speech recognition: \(error.localizedDescription)"])
-            exit(1)
-        }
-
-        emit(["type": "ready", "onDevice": true, "locale": locale.identifier(.bcp47)])
+        // Analysis already began: the analyzer was constructed with the input
+        // sequence, so there is no separate start step to take here.
+        emit(["type": "ready", "onDevice": true, "locale": locale.identifier(.bcp47),
+              "biasedTerms": vocabulary.count])
 
         // Pump stdin. Blocking reads belong off the cooperative pool, hence the
         // detached task.

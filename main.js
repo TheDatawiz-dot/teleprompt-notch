@@ -63,6 +63,7 @@ function createWindow() {
   }
   win.setContentProtection(!!settings.contentProtection && !process.env.NOTCHPROMPT_NO_PROTECT);
 
+
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   let moveSaveTimer = null;
@@ -80,7 +81,9 @@ function createWindow() {
     win.showInactive();
     const s = store.getSettings();
     send('script:loaded', { text: s.lastScript || '' });
-    send('protection:state', { active: !!s.contentProtection });
+    send('protection:state', {
+      active: !!s.contentProtection && !process.env.NOTCHPROMPT_NO_PROTECT
+    });
     if (failedShortcuts.length) {
       send('status', {
         message: `Another app already holds ${failedShortcuts.join(', ')} — those shortcuts are inactive.`
@@ -99,16 +102,31 @@ function startListening() {
     return { active: false, transcribing: false };
   }
 
+  // The recogniser returns a best guess plus runners-up. When the best guess
+  // does not line up with the script, a runner-up often does — "AI" heard as
+  // "A I", say — so the alternatives get a turn before the position is left
+  // where it was. The first one that moves the cursor wins.
+  const trackAgainst = (feed, text, alternatives) => {
+    const at = feed(text);
+    if (at) return at;
+    for (const alt of alternatives) {
+      const viaAlt = feed(alt);
+      if (viaAlt) return viaAlt;
+    }
+    return null;
+  };
+
   stt = createLocalSTT({
     onReady: () => send('status', { message: 'Listening — on-device, nothing leaves this Mac.' }),
-    onTranscript: (text) => {
+    onNotice: (message) => send('status', { message }),
+    onTranscript: (text, alternatives) => {
       send('stt:final', { text });
-      const at = tracker.feedTranscript(text);
+      const at = trackAgainst(tracker.feedTranscript, text, alternatives);
       if (at) send('scroll:to', at);
     },
-    onInterim: (text) => {
+    onInterim: (text, alternatives) => {
       send('stt:interim', { text });
-      const at = tracker.feedProvisional(text);
+      const at = trackAgainst(tracker.feedProvisional, text, alternatives);
       if (at) send('scroll:to', at);
     },
     onError: (message) => {
@@ -118,7 +136,7 @@ function startListening() {
     onExit: () => stopListening()
   });
 
-  if (!stt.start()) { stt = null; return { active: false, transcribing: false }; }
+  if (!stt.start(tracker.vocabulary())) { stt = null; return { active: false, transcribing: false }; }
 
   listening = true;
   send('listening:state', { active: true, transcribing: true });
@@ -167,12 +185,24 @@ ipcMain.handle('script:set', (_e, text) => {
 ipcMain.handle('script:step', (_e, delta) => tracker.step(delta));
 ipcMain.handle('script:jump', (_e, lineIndex) => tracker.setCursorToLine(lineIndex));
 
-ipcMain.handle('protection:get', () => ({ active: !!store.getSettings().contentProtection }));
+// One place decides what the window actually does, so the indicator and the
+// window can never disagree. The development override wins over the stored
+// preference every time: it exists so the window shows up in a screen
+// recording, and a preference saved from the settings panel silently turning
+// capture-hiding back on makes it useless.
+function applyProtection(active) {
+  const effective = !!active && !process.env.NOTCHPROMPT_NO_PROTECT;
+  if (win && !win.isDestroyed()) win.setContentProtection(effective);
+  send('protection:state', { active: effective });
+  return effective;
+}
+
+ipcMain.handle('protection:get', () => ({
+  active: !!store.getSettings().contentProtection && !process.env.NOTCHPROMPT_NO_PROTECT
+}));
 ipcMain.handle('protection:set', (_e, active) => {
-  if (win && !win.isDestroyed()) win.setContentProtection(!!active);
   store.setSettings({ contentProtection: !!active });
-  send('protection:state', { active: !!active });
-  return { active: !!active };
+  return { active: applyProtection(active) };
 });
 
 ipcMain.on('window:hide', () => { if (win) win.hide(); });
@@ -202,9 +232,8 @@ function registerShortcuts() {
   });
   bind('CommandOrControl+Shift+P', () => {
     const active = !store.getSettings().contentProtection;
-    if (win && !win.isDestroyed()) win.setContentProtection(active);
     store.setSettings({ contentProtection: active });
-    send('protection:state', { active });
+    applyProtection(active);
   });
   bind('CommandOrControl+Shift+Up', () => send('font:step', { delta: 2 }));
   bind('CommandOrControl+Shift+Down', () => send('font:step', { delta: -2 }));
@@ -216,5 +245,10 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  // The helper is a separate process holding the microphone stream. Quitting
+  // without stopping it can leave it running with the app gone.
+  if (stt) { stt.stop(); stt = null; }
+});
 app.on('window-all-closed', () => app.quit());

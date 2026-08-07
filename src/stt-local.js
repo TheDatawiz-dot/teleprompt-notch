@@ -1,11 +1,11 @@
 // Drives the native on-device transcriber.
 //
-// Speech recognition runs through Apple's Speech framework in a helper process:
-// no API key, no account, and — because the helper asks for on-device
-// recognition — no audio leaving the machine.
+// Speech recognition runs through the Speech framework's SpeechAnalyzer in a
+// helper process: no API key, no account, and no audio leaving the machine.
 
 const { spawn } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 // In a packaged build the helper ships inside the app bundle; in development it
@@ -31,10 +31,18 @@ function unavailableReason() {
   return null;
 }
 
-function createLocalSTT({ onInterim, onTranscript, onError, onReady, onExit }) {
+function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, onExit }) {
   let child = null;
   let buffer = '';
   let stopping = false;
+  let vocabFile = null;
+  let lastStderr = '';
+
+  function cleanupVocab() {
+    if (!vocabFile) return;
+    try { fs.unlinkSync(vocabFile); } catch { /* already gone */ }
+    vocabFile = null;
+  }
 
   function handleLine(line) {
     if (!line.trim()) return;
@@ -42,12 +50,15 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onExit }) {
     try { msg = JSON.parse(line); } catch { return; }
     switch (msg.type) {
       case 'ready':
-        console.log('[stt] ready, on-device:', msg.onDevice);
+        console.log(`[stt] ready — on-device: ${msg.onDevice}, locale: ${msg.locale}, biased terms: ${msg.biasedTerms}`);
         onReady(msg);
         break;
-      case 'interim': onInterim(msg.text); break;
-      case 'final': onTranscript(msg.text); break;
-      case 'notice': console.log('[stt]', msg.message); break;
+      case 'interim': onInterim(msg.text, msg.alternatives || []); break;
+      case 'final': onTranscript(msg.text, msg.alternatives || []); break;
+      case 'notice':
+        console.log('[stt]', msg.message);
+        if (onNotice) onNotice(msg.message);
+        break;
       case 'error':
         // Also logged: the window shows one status line at a time, and a
         // simultaneous microphone failure would otherwise hide this one.
@@ -57,13 +68,28 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onExit }) {
     }
   }
 
-  function start() {
+  // `vocabulary` biases recognition toward the words this script actually uses.
+  // It goes in a file rather than on argv: it runs to hundreds of entries drawn
+  // from arbitrary user text, and neither belongs in a command line.
+  function start(vocabulary = []) {
     if (child) return true;
     const reason = unavailableReason();
     if (reason) { onError(reason); return false; }
 
+    const args = ['en-US'];
+    if (vocabulary.length) {
+      try {
+        vocabFile = path.join(os.tmpdir(), `notchprompt-vocab-${process.pid}-${Date.now()}.txt`);
+        fs.writeFileSync(vocabFile, vocabulary.join('\n'), { mode: 0o600 });
+        args.push(vocabFile);
+      } catch {
+        vocabFile = null; // biasing is an optimisation, not a requirement
+      }
+    }
+
     stopping = false;
-    child = spawn(BINARY, ['en-US'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    lastStderr = '';
+    child = spawn(BINARY, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     child.stdout.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
@@ -72,17 +98,31 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onExit }) {
       lines.forEach(handleLine);
     });
 
+    // Kept for diagnosis rather than display. A helper that dies before it can
+    // print a JSON error — a missing framework, an OS too old for the API —
+    // says why here and nowhere else.
+    child.stderr.on('data', (chunk) => {
+      lastStderr = (lastStderr + chunk.toString('utf8')).slice(-2000);
+    });
+
     child.on('error', (err) => {
       child = null;
+      cleanupVocab();
       onError('Could not start the speech helper: ' + err.message);
     });
 
     child.on('exit', (code) => {
       child = null;
-      // A non-zero exit before stop() means the helper refused to run at all —
-      // almost always the speech permission. The error line it printed has
-      // already been surfaced, so this only has to unwind the UI state.
-      if (!stopping) onExit(code);
+      cleanupVocab();
+      if (stopping) return;
+      // A non-zero exit before stop() means the helper refused to run at all.
+      // If it printed a JSON error, that has already been surfaced; if it died
+      // without one, stderr is the only account of why.
+      if (code !== 0 && lastStderr.trim()) {
+        console.log('[stt] helper exited', code, 'stderr:', lastStderr.trim());
+        onError('The speech helper stopped unexpectedly. See the console for details.');
+      }
+      onExit(code);
     });
 
     // The helper exits when stdin closes; a broken pipe during teardown is
@@ -97,13 +137,14 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onExit }) {
   }
 
   function stop() {
-    if (!child) return;
+    if (!child) { cleanupVocab(); return; }
     stopping = true;
     try { child.stdin.end(); } catch { /* already gone */ }
     const dying = child;
     child = null;
     // Give it a moment to flush a final result, then make sure it is gone.
-    setTimeout(() => { if (!dying.killed) dying.kill(); }, 1200);
+    setTimeout(() => { if (!dying.killed) dying.kill(); }, 1200).unref();
+    cleanupVocab();
   }
 
   return { start, stop, sendAudio, get running() { return !!child; } };

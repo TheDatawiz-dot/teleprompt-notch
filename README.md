@@ -2,12 +2,25 @@
 
 **A teleprompter that lives under the MacBook notch and follows your voice.**
 
+![platform: macOS 26+](https://img.shields.io/badge/platform-macOS%2026%2B-black)
+![transcription: on-device](https://img.shields.io/badge/transcription-on--device-brightgreen)
+![no API key](https://img.shields.io/badge/API%20key-none-blue)
+![license: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
+
 Paste a script, start reading out loud, and the text tracks where you actually
 are — not on a timer you have to guess at ahead of time. Slow down, speed up,
 stumble over a sentence, and it stays with you.
 
+Speech recognition runs **on your Mac**. No API key, no account, no sign-up, and
+no audio leaves the machine — the app makes no network requests at all.
+
+**Requires macOS 26 or later** (for Apple's on-device `SpeechAnalyzer`) and the
+Xcode Command Line Tools, which `npm install` uses to build the speech helper.
+
 ```bash
-npm install
+git clone https://github.com/TheDatawiz-dot/teleprompt-notch.git
+cd teleprompt-notch
+npm install   # also compiles the on-device speech helper
 npm start
 ```
 
@@ -43,6 +56,35 @@ It also handles the messy parts of real reading:
 - **Continuous tracking.** It follows in-flight (interim) transcripts, not just
   finalized ones, so the script moves while you speak instead of lurching
   forward every time you pause for breath.
+
+## How it compares
+
+Teleprompters mostly fall into a few groups. This is where NotchPrompt sits, and
+where it doesn't.
+
+| | NotchPrompt | Timed scrollers (most free web/desktop ones) | Cloud voice-tracking apps |
+|---|---|---|---|
+| Keeps pace with you | follows your speech | you preset a speed | follows your speech |
+| Needs an account or key | no | usually no | usually yes |
+| Audio leaves your machine | never | n/a | typically yes |
+| Cost | free, MIT | free or paid | usually paid/subscription |
+| Sits over other apps | yes, and can hide from screen capture | rarely | varies |
+
+**Where the others are the better choice:**
+
+- **You want it on iOS, Android, Windows, or in a browser.** This is macOS-only,
+  and macOS 26+ at that. A web teleprompter runs anywhere.
+- **You need a hardware prompter rig**, beam-splitter glass, remote pedals, or
+  multi-camera setups. Established commercial apps support that ecosystem;
+  this is a window on your laptop.
+- **You improvise more than you read.** Tracking matches words, so heavily
+  paraphrasing loses it. A constant-speed scroller doesn't care what you say.
+- **You want polish and support.** This is a young project by one person. Paid
+  apps come with a company behind them.
+
+**Where this one wins:** you want to read a script on your own Mac, keep the
+recording clean, and not hand your voice to a server or your card details to a
+subscription.
 
 ## Hidden from screen recordings
 
@@ -103,7 +145,7 @@ of leaving you with a key that quietly does nothing.
 ## Development
 
 ```bash
-npm test              # 20 tests over the alignment and navigation logic
+npm test              # 37 tests over the matching and navigation logic
 npm run build:native  # rebuild just the Swift helper
 ```
 

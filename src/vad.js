@@ -1,184 +1,89 @@
-// Voice Activity Detection (VAD) — Adaptive energy-based VAD with speech state machine.
-// This is a lightweight VAD that runs in the main process on the PCM buffers.
-// It provides much better segmentation than a simple RMS gate by tracking
-// speech onset, continuation, and offset with hysteresis.
+// Energy-based voice activity detection.
 //
-// For the renderer side, we integrate @ricky0123/vad-web (Silero VAD via ONNX)
-// which is the gold standard for browser-based VAD. This file handles the
-// server/main-process side.
+// This only drives the mic status dot (speaking / not speaking) — actual
+// silence-vs-speech decisions for transcription are the Speech framework's own
+// job, made from the full audio, not this coarse RMS gate.
+//
+// The core idea is standard DSP: compare short-frame loudness against a floor
+// that tracks the room's background noise, and require loudness to persist for
+// a few frames before flipping state either direction. Two thresholds (higher
+// to start, lower to stop) give the flip some hysteresis so it doesn't chatter
+// right at the boundary.
+
+const SAMPLE_RATE = 16000;
+const FRAME_MS = 30;
+const FRAME_SAMPLES = Math.floor(SAMPLE_RATE * FRAME_MS / 1000);
+const BYTES_PER_FRAME = FRAME_SAMPLES * 2; // Int16LE
 
 class AdaptiveVAD {
-  constructor(options = {}) {
-    // Configurable thresholds
-    this.sampleRate = options.sampleRate || 16000;
-    this.frameDurationMs = options.frameDurationMs || 30; // 30ms frames
-    this.frameSize = Math.floor(this.sampleRate * this.frameDurationMs / 1000);
+  constructor(opts = {}) {
+    this.onStart = opts.onSpeechStart || (() => {});
+    this.onEnd = opts.onSpeechEnd || (() => {});
 
-    // Energy thresholds with hysteresis
-    this.onsetThreshold = options.onsetThreshold || 250;   // RMS to trigger speech start
-    this.offsetThreshold = options.offsetThreshold || 150;  // RMS to trigger speech end (lower = hysteresis)
-    this.silenceFrames = options.silenceFrames || 15;       // frames of silence before end (~450ms)
-    this.minSpeechFrames = options.minSpeechFrames || 4;   // minimum frames to count as speech (~120ms)
+    this.onsetLevel = opts.onsetThreshold ?? 220;
+    this.offsetLevel = opts.offsetThreshold ?? 130;
+    this.holdFrames = opts.silenceFrames ?? 16;     // frames of quiet before declaring speech over
+    this.minSpeechFrames = opts.minSpeechFrames ?? 4; // frames of loud before it counted as speech at all
 
-    // Adaptive noise floor
-    this.noiseFloor = 80;
-    this.noiseAdaptRate = 0.02;    // how fast noise floor adapts
-    this.noiseMaxAdapt = 400;      // don't adapt above this
+    this._floor = 90;         // running estimate of background noise level
+    this._floorGain = 0.02;   // how quickly the floor adapts (per silent frame)
+    this._floorCeiling = 400; // never let a burst of noise drag the floor up
 
-    // State machine
-    this.state = 'silence'; // 'silence' | 'speech' | 'trailing'
-    this.speechFrameCount = 0;
-    this.silenceFrameCount = 0;
-    this.totalSpeechFrames = 0;
-
-    // Callbacks
-    this.onSpeechStart = options.onSpeechStart || (() => {});
-    this.onSpeechEnd = options.onSpeechEnd || (() => {});
-    this.onVADState = options.onVADState || (() => {});
+    this._speaking = false;
+    this._loudRun = 0;   // consecutive frames above onset, while speaking
+    this._quietRun = 0;  // consecutive frames below offset, while speaking
   }
 
-  // Process a chunk of Int16 PCM audio
-  processChunk(pcmBuffer) {
-    const samples = pcmBuffer.length / 2;
-    let offset = 0;
-
-    while (offset + this.frameSize * 2 <= pcmBuffer.length) {
-      const frame = pcmBuffer.slice(offset, offset + this.frameSize * 2);
-      const energy = this._computeRMS(frame);
-      this._processFrame(energy);
-      offset += this.frameSize * 2;
+  processChunk(pcm) {
+    for (let offset = 0; offset + BYTES_PER_FRAME <= pcm.length; offset += BYTES_PER_FRAME) {
+      this._processFrame(rmsInt16LE(pcm, offset, FRAME_SAMPLES));
     }
   }
 
-  _computeRMS(frame) {
-    let sum = 0;
-    const n = frame.length / 2;
-    for (let i = 0; i < frame.length; i += 2) {
-      const s = frame.readInt16LE(i);
-      sum += s * s;
+  _processFrame(level) {
+    if (!this._speaking && level < this._floorCeiling) {
+      this._floor += (level - this._floor) * this._floorGain;
     }
-    return Math.sqrt(sum / n);
-  }
 
-  _processFrame(energy) {
-    // Adapt noise floor during silence
-    if (this.state === 'silence') {
-      if (energy < this.noiseMaxAdapt) {
-        this.noiseFloor = this.noiseFloor * (1 - this.noiseAdaptRate) + energy * this.noiseAdaptRate;
+    const startsAt = Math.max(this.onsetLevel, this._floor * 2.5);
+    const stopsAt = Math.max(this.offsetLevel, this._floor * 1.5);
+
+    if (!this._speaking) {
+      this._loudRun = level > startsAt ? this._loudRun + 1 : 0;
+      if (this._loudRun >= this.minSpeechFrames) {
+        this._speaking = true;
+        this._quietRun = 0;
+        this.onStart();
       }
+      return;
     }
 
-    // Dynamic thresholds based on noise floor
-    const dynamicOnset = Math.max(this.onsetThreshold, this.noiseFloor * 2.5);
-    const dynamicOffset = Math.max(this.offsetThreshold, this.noiseFloor * 1.5);
-
-    const isSpeech = energy > dynamicOnset;
-    const isSilence = energy < dynamicOffset;
-
-    switch (this.state) {
-      case 'silence':
-        if (isSpeech) {
-          this.speechFrameCount = 1;
-          this.state = 'speech';
-          this.onSpeechStart();
-          this.onVADState('speech');
-        }
-        break;
-
-      case 'speech':
-        if (isSpeech) {
-          this.speechFrameCount++;
-          this.totalSpeechFrames++;
-        } else if (isSilence) {
-          this.silenceFrameCount = 1;
-          this.state = 'trailing';
-        }
-        break;
-
-      case 'trailing':
-        if (isSpeech) {
-          // Speech resumed — reset silence counter
-          this.silenceFrameCount = 0;
-          this.speechFrameCount++;
-          this.state = 'speech';
-        } else {
-          this.silenceFrameCount++;
-          if (this.silenceFrameCount >= this.silenceFrames) {
-            // Confirmed end of speech
-            const wasSpeech = this.speechFrameCount >= this.minSpeechFrames;
-            if (wasSpeech) {
-              this.onSpeechEnd(this.speechFrameCount * this.frameDurationMs);
-            }
-            this.state = 'silence';
-            this.speechFrameCount = 0;
-            this.silenceFrameCount = 0;
-            this.onVADState('silence');
-          }
-        }
-        break;
+    if (level < stopsAt) {
+      this._quietRun++;
+      if (this._quietRun >= this.holdFrames) {
+        this._speaking = false;
+        this.onEnd(this._quietRun * FRAME_MS); // duration is approximate, callers only log it
+      }
+    } else {
+      this._quietRun = 0;
     }
-  }
-
-  // Get current state info
-  getState() {
-    return {
-      state: this.state,
-      isSpeaking: this.state !== 'silence',
-      noiseFloor: Math.round(this.noiseFloor),
-      speechDurationMs: this.speechFrameCount * this.frameDurationMs
-    };
   }
 
   reset() {
-    this.state = 'silence';
-    this.speechFrameCount = 0;
-    this.silenceFrameCount = 0;
-    this.totalSpeechFrames = 0;
-    this.noiseFloor = 80;
+    this._speaking = false;
+    this._loudRun = 0;
+    this._quietRun = 0;
+    this._floor = 90;
   }
 }
 
-// Ring buffer for keeping pre-speech audio (so we don't lose the first word)
-class AudioRingBuffer {
-  constructor(durationMs, sampleRate = 16000) {
-    this.capacity = Math.floor(sampleRate * 2 * durationMs / 1000); // bytes
-    this.buffer = Buffer.alloc(this.capacity);
-    this.writePos = 0;
-    this.filled = false;
+function rmsInt16LE(buf, start, sampleCount) {
+  let sumSquares = 0;
+  for (let i = 0; i < sampleCount; i++) {
+    const sample = buf.readInt16LE(start + i * 2);
+    sumSquares += sample * sample;
   }
-
-  write(pcm) {
-    if (pcm.length >= this.capacity) {
-      pcm.copy(this.buffer, 0, pcm.length - this.capacity);
-      this.writePos = 0;
-      this.filled = true;
-      return;
-    }
-    const space = this.capacity - this.writePos;
-    if (pcm.length <= space) {
-      pcm.copy(this.buffer, this.writePos);
-      this.writePos += pcm.length;
-    } else {
-      pcm.copy(this.buffer, this.writePos, 0, space);
-      pcm.copy(this.buffer, 0, space);
-      this.writePos = pcm.length - space;
-      this.filled = true;
-    }
-  }
-
-  // Get all buffered audio in order
-  read() {
-    if (!this.filled) return this.buffer.slice(0, this.writePos);
-    return Buffer.concat([
-      this.buffer.slice(this.writePos),
-      this.buffer.slice(0, this.writePos)
-    ]);
-  }
-
-  clear() {
-    this.writePos = 0;
-    this.filled = false;
-  }
+  return Math.sqrt(sumSquares / sampleCount);
 }
 
-module.exports = { AdaptiveVAD, AudioRingBuffer };
+module.exports = { AdaptiveVAD };

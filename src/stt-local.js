@@ -31,7 +31,12 @@ function unavailableReason() {
   return null;
 }
 
-function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, onExit }) {
+// `binary` and `spawnFn` exist so the lifecycle — line framing, crashes, exits
+// before readiness — can be exercised against a stand-in helper. Production
+// callers pass neither.
+function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, onExit, binary, spawnFn }) {
+  const exe = binary || BINARY;
+  const launch = spawnFn || spawn;
   let child = null;
   let buffer = '';
   let stopping = false;
@@ -73,7 +78,7 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, o
   // from arbitrary user text, and neither belongs in a command line.
   function start(vocabulary = []) {
     if (child) return true;
-    const reason = unavailableReason();
+    const reason = binary ? null : unavailableReason();
     if (reason) { onError(reason); return false; }
 
     const args = ['en-US'];
@@ -89,7 +94,7 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, o
 
     stopping = false;
     lastStderr = '';
-    child = spawn(BINARY, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    child = launch(exe, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     child.stdout.on('data', (chunk) => {
       buffer += chunk.toString('utf8');

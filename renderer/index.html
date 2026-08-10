@@ -2,6 +2,10 @@
 <html>
 <head>
 <meta charset="utf-8">
+<!-- Defence in depth alongside the session-level block in src/network-guard.js:
+     nothing may be fetched, connected to, or embedded from anywhere. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>NotchPrompt</title>
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -55,6 +59,7 @@
     </div>
   </div>
 
+  <script src="view-model.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

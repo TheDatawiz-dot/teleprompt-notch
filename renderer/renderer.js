@@ -1,4 +1,6 @@
 (function () {
+  const VM = window.NotchPromptViewModel;
+
   const editView = document.getElementById('edit-view');
   const readView = document.getElementById('read-view');
   const scriptInput = document.getElementById('script-input');
@@ -49,11 +51,6 @@
 
   // One span per word, built from the tracker's own token layout, so the word
   // highlighted on screen is by construction the word the matcher matched.
-  function lineOfWord(index) {
-    if (!wordLineIndex.length) return currentLine;
-    return wordLineIndex[Math.max(0, Math.min(index, wordLineIndex.length - 1))];
-  }
-
   function renderLines() {
     scriptScroll.innerHTML = '';
     // Rebuilt from scratch, so the incremental paint state and its node caches
@@ -61,7 +58,7 @@
     wordNodes = [];
     lineNodes = [];
     wordLineIndex = [];
-    recent = [];
+    pacer.reset();
     paintedWord = -1;
     paintedLine = -1;
     layout.forEach((words, i) => {
@@ -107,21 +104,15 @@
     }
     if (paintedWord === currentWord) return;
 
-    if (wordNodes[paintedWord]) wordNodes[paintedWord].classList.remove('at');
-    // Everything between the old and new cursor becomes read text. Walking the
-    // gap keeps a jump (click, arrow key) correct without a full repaint.
-    if (currentWord > paintedWord) {
-      for (let i = Math.max(0, paintedWord); i < currentWord; i++) {
-        if (wordNodes[i]) wordNodes[i].classList.add('spoken');
-      }
-    } else {
-      for (let i = currentWord; i <= paintedWord && i < wordNodes.length; i++) {
-        if (wordNodes[i]) wordNodes[i].classList.remove('spoken');
-      }
+    const change = VM.diffPaint(paintedWord, currentWord, wordNodes.length);
+    if (change.clearAt !== null && wordNodes[change.clearAt]) {
+      wordNodes[change.clearAt].classList.remove('at');
     }
-    if (wordNodes[currentWord]) {
-      wordNodes[currentWord].classList.add('at');
-      wordNodes[currentWord].classList.remove('spoken');
+    change.addSpoken.forEach((i) => { if (wordNodes[i]) wordNodes[i].classList.add('spoken'); });
+    change.removeSpoken.forEach((i) => { if (wordNodes[i]) wordNodes[i].classList.remove('spoken'); });
+    if (change.setAt !== null && wordNodes[change.setAt]) {
+      wordNodes[change.setAt].classList.add('at');
+      wordNodes[change.setAt].classList.remove('spoken');
     }
     paintedWord = currentWord;
   }
@@ -154,18 +145,13 @@
   // it, at where the reader has probably got to, and sits that point above the
   // middle of the window so the line being read has its continuation in view
   // rather than the text already spoken.
-  const LEAD_SECONDS = 0.6;   // a little under the measured delay, to avoid overshooting
-  const MAX_LEAD_WORDS = 6;
-  const ANCHOR = 0.4;         // fraction of the window height above the read line
-
-  let recent = [];            // timestamps of confirmed word positions, for pace
+  const pacer = VM.createPacer();
 
   function applyPosition(at) {
     if (!at) return;
     currentLine = at.lineIndex;
     currentWord = at.wordIndex;
-    recent.push({ t: performance.now(), word: at.wordIndex });
-    if (recent.length > 12) recent.shift();
+    pacer.record(performance.now(), at.wordIndex);
     if (frameQueued) return;
     frameQueued = true;
     requestAnimationFrame(() => {
@@ -175,36 +161,23 @@
     });
   }
 
-  // Words per second over the last few updates. Falls to zero when the reader
-  // stops, which parks the lead rather than letting it run away.
-  function readingPace() {
-    if (recent.length < 3) return 0;
-    const first = recent[0], last = recent[recent.length - 1];
-    const seconds = (last.t - first.t) / 1000;
-    if (seconds < 0.4) return 0;
-    const words = last.word - first.word;
-    if (words <= 0) return 0;
-    return Math.min(words / seconds, 6); // faster than this is a jump, not reading
-  }
-
   function aimScroll() {
-    const lead = Math.min(Math.round(readingPace() * LEAD_SECONDS), MAX_LEAD_WORDS);
-    const node = lineNodes[lineOfWord(currentWord + lead)] || lineNodes[currentLine];
+    const lead = VM.leadWords(pacer.pace());
+    const node = lineNodes[VM.lineOfWord(wordLineIndex, currentWord + lead, currentLine)]
+      || lineNodes[currentLine];
     if (!node) return;
-    const anchored = node.offsetTop - scriptScroll.clientHeight * ANCHOR + node.offsetHeight / 2;
-    const limit = Math.max(0, scriptScroll.scrollHeight - scriptScroll.clientHeight);
-    scrollTarget = Math.max(0, Math.min(anchored, limit));
+    scrollTarget = VM.scrollTargetFor({
+      lineTop: node.offsetTop,
+      lineHeight: node.offsetHeight,
+      viewportHeight: scriptScroll.clientHeight,
+      contentHeight: scriptScroll.scrollHeight
+    });
     if (scrollAnimating) return; // the running loop picks up the new target
     scrollAnimating = true;
     requestAnimationFrame(function stepScroll() {
-      const remaining = scrollTarget - scriptScroll.scrollTop;
-      if (Math.abs(remaining) < 0.5) {
-        scriptScroll.scrollTop = scrollTarget;
-        scrollAnimating = false;
-        return;
-      }
-      // Eases out: quick while far behind, gentle over the last few pixels.
-      scriptScroll.scrollTop += remaining * 0.16;
+      const next = VM.easeStep(scriptScroll.scrollTop, scrollTarget);
+      scriptScroll.scrollTop = next.value;
+      if (next.done) { scrollAnimating = false; return; }
       requestAnimationFrame(stepScroll);
     });
   }

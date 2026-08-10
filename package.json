@@ -1,7 +1,7 @@
 {
   "name": "notchprompt",
-  "version": "0.1.0",
-  "description": "A small voice-tracking teleprompter that lives under the MacBook notch.",
+  "version": "0.2.0",
+  "description": "A private, on-device macOS teleprompter that follows your voice.",
   "license": "MIT",
   "author": "",
   "main": "main.js",
@@ -9,32 +9,76 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "build:native": "node scripts/build-native.js",
-    "postinstall": "node scripts/build-native.js"
+    "postinstall": "node scripts/build-native.js",
+    "dist": "npm run build:native && electron-builder --mac",
+    "dist:dir": "npm run build:native && electron-builder --mac --dir",
+    "verify:artifact": "node scripts/verify-artifact.js",
+    "check": "node scripts/check-imports.js",
+    "pretest": "node scripts/check-imports.js"
   },
   "build": {
     "appId": "com.notchprompt.app",
-    "productName": "NotchPrompt",
-    "asar": false,
+    "productName": "Teleprompt Notch",
+    "copyright": "Copyright \u00a9 2026 Hridhaan Shah",
+    "asar": true,
     "files": [
       "main.js",
       "preload.js",
       "src/**/*",
       "renderer/**/*",
-      "native/build/**/*"
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "native/build/notchprompt-transcriber",
+        "to": "notchprompt-transcriber"
+      }
     ],
     "mac": {
       "target": [
-        "dir"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.productivity",
+      "minimumSystemVersion": "26.0",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "LSUIElement": true,
-        "NSMicrophoneUsageDescription": "NotchPrompt listens to your own mic so it can scroll your script as you read it."
+        "NSMicrophoneUsageDescription": "Teleprompt Notch listens to your microphone so your script can scroll in time with your reading. Audio is transcribed on this Mac and never leaves it."
       }
+    },
+    "dmg": {
+      "title": "Teleprompt Notch",
+      "contents": [
+        {
+          "x": 140,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
     }
   },
   "devDependencies": {
-    "electron": "^43.3.0"
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3"
   },
   "engines": {
     "node": ">=18"

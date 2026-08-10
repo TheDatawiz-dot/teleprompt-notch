@@ -1,9 +1,11 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, session } = require('electron');
 const path = require('path');
 const store = require('./src/store');
 const { AdaptiveVAD } = require('./src/vad');
 const { createLocalSTT, isAvailable: sttAvailable, unavailableReason } = require('./src/stt-local');
 const { createScriptTracker } = require('./src/script-tracker');
+const networkGuard = require('./src/network-guard');
+const { placeWindow } = require('./src/window-position');
 
 let win = null;
 let tracker = createScriptTracker('');
@@ -22,16 +24,18 @@ function send(channel, data) {
 }
 
 function createWindow() {
-  const { workArea } = screen.getPrimaryDisplay();
   const W = 460, H = 300;
   const settings = store.getSettings();
 
-  let startX = Math.round(workArea.x + (workArea.width - W) / 2);
-  let startY = workArea.y + 6;
-  if (settings.windowX !== null && settings.windowY !== null) {
-    startX = Math.max(workArea.x, Math.min(settings.windowX, workArea.x + workArea.width - 100));
-    startY = Math.max(workArea.y, Math.min(settings.windowY, workArea.y + workArea.height - 40));
-  }
+  const placement = placeWindow({
+    saved: { x: settings.windowX, y: settings.windowY },
+    size: { width: W, height: H },
+    displays: screen.getAllDisplays(),
+    primary: screen.getPrimaryDisplay()
+  });
+  const startX = placement.x;
+  const startY = placement.y;
+  console.log('[notchprompt] window placed at', startX + ',' + startY, '(' + placement.reason + ')');
 
   win = new BrowserWindow({
     width: W,
@@ -240,6 +244,19 @@ function registerShortcuts() {
 }
 
 app.whenReady().then(() => {
+  // Refuse outbound requests before any window exists. The app transcribes
+  // locally and has nothing to send; this makes that a property of the running
+  // program rather than a claim about the source.
+  networkGuard.install(session.defaultSession, (url) => {
+    console.warn('[notchprompt] blocked a network request:', url);
+  });
+
+  // Logged once at startup so a user whose voice tracking silently does nothing
+  // can find out why from Console.app without needing the source.
+  const reason = unavailableReason();
+  console.log('[notchprompt]', app.getVersion(), '| packaged:', app.isPackaged,
+    '| voice tracking:', reason ? 'UNAVAILABLE — ' + reason : 'available');
+
   createWindow();
   registerShortcuts();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

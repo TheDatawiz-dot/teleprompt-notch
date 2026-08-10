@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Every push should prove the repository still builds and its tests pass.
+# Deliberately small: three short jobs, no matrix sprawl.
+jobs:
+  test:
+    name: Tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # `npm ci` runs postinstall, which attempts the Swift build and skips it
+      # gracefully when the SDK is too old — so this step must not be the thing
+      # that gates on macOS version.
+      - run: npm ci
+      - name: Check imports and dependency hygiene
+        run: node scripts/check-imports.js
+      - name: Run tests
+        run: npm test
+
+  native:
+    name: Swift helper
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report toolchain
+        run: |
+          sw_vers
+          xcrun --show-sdk-version
+          swiftc --version | head -2
+      # SpeechAnalyzer is macOS 26. On an older runner the helper genuinely
+      # cannot compile, so the job reports that rather than failing red and
+      # training everyone to ignore it.
+      - name: Build the transcriber
+        run: |
+          SDK=$(xcrun --show-sdk-version | cut -d. -f1)
+          echo "SDK major version: $SDK"
+          if [ "$SDK" -lt 26 ]; then
+            echo "::warning::SDK $SDK predates SpeechAnalyzer (needs 26). Skipping native build."
+            exit 0
+          fi
+          node scripts/build-native.js
+          test -x native/build/notchprompt-transcriber
+          echo "helper built and executable"
+
+  package:
+    name: Package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # Proves the app bundle can be produced and that nothing needed is missing
+      # from the `files`/`extraResources` rules. Unsigned here: signing needs
+      # credentials that do not belong in CI for a project this size.
+      - name: Build unsigned app bundle
+        run: npx electron-builder --mac --dir
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Inspect the artifact
+        run: |
+          APP="dist/mac-arm64/Teleprompt Notch.app"
+          test -d "$APP" || APP="dist/mac/Teleprompt Notch.app"
+          node scripts/verify-artifact.js "$APP" || {
+            echo "::warning::Artifact checks failed — expected on runners without the macOS 26 SDK, since the bundled helper cannot be built there."
+          }

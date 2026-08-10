@@ -1,132 +1,96 @@
-# NotchPrompt
+# Teleprompt Notch
 
-**A teleprompter that lives under the MacBook notch and follows your voice.**
+**A private, on-device macOS teleprompter that follows your voice.**
 
 ![platform: macOS 26+](https://img.shields.io/badge/platform-macOS%2026%2B-black)
 ![transcription: on-device](https://img.shields.io/badge/transcription-on--device-brightgreen)
 ![no API key](https://img.shields.io/badge/API%20key-none-blue)
+![no network](https://img.shields.io/badge/network-blocked-informational)
 ![license: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 
-Paste a script, start reading out loud, and the text tracks where you actually
-are — not on a timer you have to guess at ahead of time. Slow down, speed up,
-stumble over a sentence, and it stays with you.
+Paste a script, start reading out loud, and the text keeps pace with you. Slow
+down, speed up, stumble over a sentence — it stays with you. No preset scroll
+speed to guess at.
 
-Speech recognition runs **on your Mac**. No API key, no account, no sign-up, and
-no audio leaves the machine — the app makes no network requests at all.
+It sits in a small window just under the menu bar, stays on top of whatever else
+you are doing, and can hide itself from screen recordings.
 
-**Requires macOS 26 or later** (for Apple's on-device `SpeechAnalyzer`) and the
-Xcode Command Line Tools, which `npm install` uses to build the speech helper.
-
-```bash
-git clone https://github.com/TheDatawiz-dot/teleprompt-notch.git
-cd teleprompt-notch
-npm install   # also compiles the on-device speech helper
-npm start
-```
+> **Demo:** a recording is not in the repository yet. It needs a quiet screen and
+> a real voice, and a staged one would misrepresent how this behaves. Until then,
+> the [How it works](#how-it-works) section describes the behaviour precisely and
+> `bench/track-accuracy.js` reports measured numbers you can reproduce.
 
 ---
 
-## Why voice-tracked instead of timed?
+## Features
 
-Every free teleprompter scrolls at a constant speed you set in advance. That is
-fine until you pause for a thought, get a word wrong, or simply read faster than
-you rehearsed — and then you spend the rest of the take fighting the scroll
-instead of talking.
+- **Follows your speech**, word by word, rather than scrolling on a timer
+- **Transcription runs on your Mac** — no API key, no account, no sign-up
+- **No network access at all**, blocked at the session and by the app's CSP
+- **No telemetry**, no analytics, no runtime dependencies whatsoever
+- **Hides from screen recordings** on a keystroke, with an indicator so you always
+  know whether it is hidden
+- **Tolerant of real reading** — contractions, numbers read aloud, mispronounced
+  proper nouns, repeated lines, paragraph breaks
+- **Works without the microphone too** — constant-speed auto-scroll, arrow keys,
+  click any line to jump
 
-NotchPrompt listens to your microphone, transcribes it, and aligns what you said
-against the script to find your position. The text follows you.
+## Download
 
-It also handles the messy parts of real reading:
+Grab the `.dmg` from [Releases](https://github.com/TheDatawiz-dot/teleprompt-notch/releases),
+open it, and drag the app to Applications.
 
-- **Repeated structure.** Scripts say things like *"The first topic is speed…
-  The second topic is accuracy…"*. Naive matching latches onto the wrong
-  repetition and skips ahead several lines. NotchPrompt uses local alignment with
-  a gap penalty, so a match only wins if the words *around* it line up too.
-- **Re-reading.** If you repeat a line you already delivered, the cursor holds
-  position instead of jumping backwards.
-- **Filler and misheard words.** "Um", "sorry", and transcription errors cost a
-  small penalty rather than breaking the match.
-- **Words the recogniser spells its own way.** Your script says *Kubernetes*;
-  the transcript says *Cubanets*. Matching falls back to what the words *sound*
-  like, so a mangled proper noun still tracks. Measured on a dictionary of
-  174,000 words, unrelated pairs collide this way 0.06% of the time, and one
-  weak match alone is never enough to move the cursor.
-- **The same thing written two ways.** "let's" and "let us", "5" and "five",
-  "1st" and "first", "recognise" and "recognize" all count as matches.
-- **Continuous tracking.** It follows in-flight (interim) transcripts, not just
-  finalized ones, so the script moves while you speak instead of lurching
-  forward every time you pause for breath.
+**Requires macOS 26 (Tahoe) or later.** The on-device speech API this is built on
+does not exist before that.
 
-## How it compares
+### First launch: Gatekeeper
 
-Teleprompters mostly fall into a few groups. This is where NotchPrompt sits, and
-where it doesn't.
+The app is **not signed or notarised** — that needs a paid Apple Developer
+account. macOS will therefore refuse to open it on the first attempt.
 
-| | NotchPrompt | Timed scrollers (most free web/desktop ones) | Cloud voice-tracking apps |
-|---|---|---|---|
-| Keeps pace with you | follows your speech | you preset a speed | follows your speech |
-| Needs an account or key | no | usually no | usually yes |
-| Audio leaves your machine | never | n/a | typically yes |
-| Cost | free, MIT | free or paid | usually paid/subscription |
-| Sits over other apps | yes, and can hide from screen capture | rarely | varies |
+1. Right-click (or Control-click) the app → **Open**
+2. Confirm **Open** in the dialog
 
-**Where the others are the better choice:**
+You only do this once. If you would rather not run unsigned software, build it
+yourself — see [Development](#development).
 
-- **You want it on iOS, Android, Windows, or in a browser.** This is macOS-only,
-  and macOS 26+ at that. A web teleprompter runs anywhere.
-- **You need a hardware prompter rig**, beam-splitter glass, remote pedals, or
-  multi-camera setups. Established commercial apps support that ecosystem;
-  this is a window on your laptop.
-- **You improvise more than you read.** Tracking matches words, so heavily
-  paraphrasing loses it. A constant-speed scroller doesn't care what you say.
-- **You want polish and support.** This is a young project by one person. Paid
-  apps come with a company behind them.
+### Permissions
 
-**Where this one wins:** you want to read a script on your own Mac, keep the
-recording clean, and not hand your voice to a server or your card details to a
-subscription.
+The app asks for **the microphone**, once, the first time you press Listen. That
+is the only permission it requests. It does not ask for Screen Recording, Full
+Disk Access, Accessibility, or speech-recognition permission.
 
-## Hidden from screen recordings
+## How it works
 
-The window can exclude itself from screen shares and recordings
-(`setContentProtection`), so it does not appear in your own screen capture or in
-a call you are sharing. A dot in the title bar always shows whether that is
-currently on, so you are never guessing about the state.
+You read; the app listens and matches.
 
-NotchPrompt does **not** disguise its process name — it reports itself as
-NotchPrompt everywhere macOS shows it. Hiding a window from a *recording* is a
-framing choice; lying about what software is running is a different thing, and
-this app does not do it.
+1. The microphone is captured in the app and converted to 16 kHz mono audio.
+2. A small Swift helper transcribes it locally using macOS's `SpeechAnalyzer`.
+3. Each transcript update is aligned against your script to find your position.
+4. The current word is highlighted and the view scrolls to keep upcoming text in
+   view.
 
-## Transcription is built in
+The matching is the interesting part, because a transcript never matches a script
+exactly. It handles:
 
-There is no API key, no account, and no sign-up. Recognition runs on this Mac
-through the Speech framework's `SpeechAnalyzer`, in a small Swift helper the
-app spawns (`native/Transcriber.swift`). Your audio is never sent anywhere —
-not to Apple, not to us. The app makes no network requests at all.
+- **Repeated structure.** "The first topic is speed… the second topic is
+  accuracy…" — naive matching latches onto the wrong repetition and skips ahead.
+  Local alignment with a gap penalty means a match only wins if the words around
+  it line up too.
+- **Words spelled differently than they sound.** Your script says *Kubernetes*;
+  the transcript says *Cubanets*. Matching falls back to what words *sound* like.
+- **The same thing written two ways.** `let's`/`let us`, `5`/`five`,
+  `1st`/`first`, `recognise`/`recognize`.
+- **Re-reading and stumbles.** Repeat a line and the position holds rather than
+  jumping backwards.
 
-The helper deliberately uses `SpeechAnalyzer` rather than the older
-`SFSpeechRecognizer`. Two reasons, both learned the hard way:
+Recognition is inherently about **0.8 seconds behind** you — measured, and not
+something any app can tune away. So the highlight marks the last word actually
+recognised, while the scroll aims slightly *ahead* of it at your measured reading
+pace. That way the text you are about to read is what fills the window, instead of
+the text you just finished.
 
-- `SFSpeechRecognizer` is gated behind the **Speech Recognition** privacy
-  permission, and a spawned command-line helper cannot obtain it — macOS has no
-  app bundle to show a prompt for, so the request is denied outright and the
-  user is never asked. It never even appears in System Settings to be allowed.
-- Its on-device mode is opt-in. Left unset it streams audio to Apple's servers,
-  which is what System Settings warns about, and the wrong default for this app.
-
-`SpeechAnalyzer` is on-device by construction and needs no such permission. The
-only permission NotchPrompt asks for is the **microphone**.
-
-If it is unavailable — non-macOS, macOS below 26, or the helper was not built —
-the app says so and manual scrolling carries on working:
-
-| Mode | How it moves |
-|---|---|
-| Voice tracking | follows your speech |
-| `Auto` | constant speed, start/stop |
-| `↑` / `↓` | one line at a time |
-| Click a line | jump there |
+Full detail, including the approaches that failed: **[docs/engineering-notes.md](docs/engineering-notes.md)**.
 
 ## Shortcuts
 
@@ -139,49 +103,108 @@ the app says so and manual scrolling carries on working:
 | `↑` / `↓` | step one line (while reading) |
 | `Esc` | back to the editor |
 
-If another app already owns one of these, NotchPrompt says so on launch instead
-of leaving you with a key that quietly does nothing.
+If another app already owns one of these, the app says so on launch rather than
+leaving you with a key that quietly does nothing.
+
+## Privacy
+
+The claim is that no audio leaves your Mac and the app makes no network requests.
+That is enforced rather than promised:
+
+| Guarantee | How it is enforced |
+|---|---|
+| No network requests | Every request not loading the app's own files is refused at the Electron session; a CSP sets `connect-src 'none'` |
+| Cannot gain networking later | Zero runtime dependencies, asserted by a test that fails the build |
+| No network permission | The hardened-runtime entitlements deliberately omit `network.client` |
+| Recognition never goes to a server | The helper requires on-device recognition and refuses to start rather than fall back |
+| No telemetry | Asserted by a test that greps shipped source |
+| Audio is never stored | It goes from the microphone to the local helper over a pipe, and nowhere else |
+
+Your script is saved locally, so it is still there next launch — in
+`~/Library/Application Support/`, written owner-only.
+
+## Limitations
+
+Honest ones.
+
+- **macOS 26+ only.** `SpeechAnalyzer` does not exist before it. This excludes
+  every Intel Mac. It is the project's biggest constraint.
+- **Unsigned.** Gatekeeper will warn on first launch. Needs a paid Apple
+  Developer account to fix.
+- **No human has validated the feel.** The tracking is measured; whether the
+  motion is comfortable to read from is not, and the scroll-lead values are
+  reasoned defaults rather than tested ones. See `bench/README.md`.
+- **Accuracy numbers are from synthesised speech.** The bundled benchmark uses
+  macOS `say`: one voice, even pace, clean audio. Real speech is harder. The
+  harness accepts real recordings; none are included.
+- **It matches words, not meaning.** Paraphrase heavily and it loses you. Built
+  for reading prepared text, not improvising.
+- **Apple Silicon build only.** Intel Macs cannot run macOS 26 anyway.
+- **One script at a time.** No library, no playlists.
+- **English only** as configured, though the underlying API supports more.
 
 ## Development
 
 ```bash
-npm test              # 37 tests over the matching and navigation logic
-npm run build:native  # rebuild just the Swift helper
+git clone https://github.com/TheDatawiz-dot/teleprompt-notch.git
+cd teleprompt-notch
+npm install        # also compiles the Swift speech helper
+npm start
 ```
 
-The tracker is the part worth testing, and the suite is mostly regressions for
-bugs that actually happened: LCS tunnelling through repeated sentence templates,
-interim transcripts poisoning the match history, and manual navigation
-deadlocking on the blank line between paragraphs. The phonetic tests use the
-actual output the on-device recogniser produced, not invented examples.
-
-The script's vocabulary is also handed to the recogniser as context. On
-synthesised speech this changed no output at all — the model is already
-confident there — so it is kept as the documented hint it is rather than
-advertised as an improvement; the phonetic fallback is what does the work.
-
-To see the window in your own screen recordings while working on it:
+Needs the Xcode Command Line Tools for the helper. Without them `npm install`
+still succeeds — it skips the helper with a message, and the app runs with manual
+scrolling only.
 
 ```bash
-NOTCHPROMPT_NO_PROTECT=1 npm start
+npm start                      # run in development
+NOTCHPROMPT_NO_PROTECT=1 npm start   # make the window visible to screen recording
+npm run build:native           # rebuild just the Swift helper
+npm run dist                   # produce .dmg and .zip in dist/
+npm run verify:artifact        # inspect the built .app
 ```
 
-## Limitations
+### Layout
 
-- **macOS-only for voice.** "Under the notch" is a Mac idea to begin with. The
-  window runs elsewhere and anchors top-center, but transcription, content
-  protection, and Mission Control hiding are macOS-only.
-- **Voice tracking needs macOS 26 or later.** `SpeechAnalyzer` was introduced in
-  macOS 26; on anything older the app runs, says voice tracking is unavailable,
-  and leaves you the manual modes.
-- **The Swift helper needs the Xcode Command Line Tools to build.** `npm install`
-  compiles it; without a toolchain the build is skipped with a message rather
-  than failing the install.
-- **Tracking is only as good as the transcription.** Heavy accents, background
-  noise, or a bad mic degrade it. The manual modes are always there as a floor.
-- **It matches words, not meaning.** Paraphrase the script heavily and it will
-  lose you; it is built for reading prepared text, not improvising.
-- **One script at a time.** No playlists, no multi-take management.
+```
+main.js                     Electron main: window, shortcuts, IPC, audio routing
+preload.js                  The IPC surface exposed to the page (allowlisted)
+src/script-tracker.js       The matcher: alignment, phonetics, normalisation
+src/stt-local.js            Drives the Swift helper, parses its output
+src/window-position.js      Where the window opens, across displays
+src/network-guard.js        Refuses outbound requests
+src/store.js                Settings persistence
+src/vad.js                  Energy-based speech detection (drives the mic dot)
+renderer/view-model.js      Display decisions as pure functions
+renderer/renderer.js        DOM binding for the above
+native/Transcriber.swift    On-device transcription via SpeechAnalyzer
+bench/                      Accuracy and lead-tuning harnesses
+```
+
+## Testing
+
+```bash
+npm test        # 122 tests; also runs the import/dependency check
+```
+
+Covers the matcher, the display logic, settings persistence, the helper process
+lifecycle, window placement across displays, and the privacy guarantees.
+
+Much of the suite is regressions for bugs that actually happened — LCS tunnelling
+through repeated sentence structure, navigation deadlocking on blank lines,
+interim transcripts poisoning the match history, a settings file injecting keys, a
+window stranded off screen after undocking.
+
+Benchmarks are separate and not run in CI, since one needs real-time audio and the
+other is a model:
+
+```bash
+node bench/track-accuracy.js   # matcher accuracy against the transcript
+node bench/lead-sweep.js       # scroll-lead values vs measured latency
+```
+
+See **[bench/README.md](bench/README.md)** for what those numbers mean and how to
+add your own recordings.
 
 ## License
 

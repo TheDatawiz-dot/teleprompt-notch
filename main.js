@@ -140,7 +140,7 @@ function startListening() {
     onExit: () => stopListening()
   });
 
-  if (!stt.start(tracker.vocabulary())) { stt = null; return { active: false, transcribing: false }; }
+  if (!stt.start()) { stt = null; return { active: false, transcribing: false }; }
 
   listening = true;
   send('listening:state', { active: true, transcribing: true });

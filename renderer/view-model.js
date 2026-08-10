@@ -16,12 +16,21 @@
 
   // Tuning for how far ahead of the confirmed position the scroll aims.
   //
-  // NOT human-validated. These are reasoned starting points: recognition runs
-  // roughly 0.8s behind the speaker (measured), so leading by a little less than
-  // that should put the text where the reader actually is without overshooting.
-  // Whether it *feels* right to a person reading aloud is a separate question
-  // that only a person reading aloud can answer. `bench/lead-sweep.js` compares
-  // values on recorded audio; see docs/engineering-notes.md.
+  // NOT human-validated. No person has yet read from this app and reported
+  // whether the motion feels right, and that is the only test that settles these
+  // numbers. Treat them as defaults chosen to fail safe.
+  //
+  // What is measured: recognition reports a word a median of ~0.8s after it is
+  // spoken, on this machine. `bench/lead-sweep.js` models a steady reader against
+  // that latency and finds leadSeconds ≈ 1.0–1.2 minimises the distance between
+  // the aimed position and where the reader actually is; at 0.6 the scroll sits
+  // about 0.6 words behind them.
+  //
+  // 0.6 is kept anyway, deliberately. The model optimises average distance and
+  // is indifferent to which side of the reader the error falls on, whereas a
+  // reader is not: text arriving slightly late is a much smaller problem than the
+  // page scrolling past the line being read. If it feels sluggish, raising this
+  // toward 1.0 is the first thing to try — and the sweep says that is defensible.
   const DEFAULTS = {
     leadSeconds: 0.6,   // how far ahead of the confirmed word to aim
     maxLeadWords: 6,    // never lead further than this, however fast the pace

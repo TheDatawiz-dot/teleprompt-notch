@@ -19,10 +19,6 @@
 
 const TOP_GAP = 6; // breathing room below the menu bar
 
-function fits(display, size) {
-  return display.workArea.width >= size.width && display.workArea.height >= size.height;
-}
-
 // The display a remembered point belongs to, or null if that screen is gone.
 //
 // Matched against the display's full bounds rather than its work area: a window
@@ -78,4 +74,4 @@ function placeWindow({ saved, size, displays, primary, topGap = TOP_GAP }) {
   return { ...placed, display: target, reason: moved ? 'clamped-into-view' : 'restored' };
 }
 
-module.exports = { placeWindow, displayContaining, clampToDisplay, fits, TOP_GAP };
+module.exports = { placeWindow, displayContaining, clampToDisplay, TOP_GAP };

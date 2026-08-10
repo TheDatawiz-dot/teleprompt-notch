@@ -346,19 +346,6 @@ function createScriptTracker(scriptText) {
     return position();
   }
 
-  // Distinct script vocabulary, longest first, for biasing the recogniser
-  // toward the words this particular script actually uses.
-  function vocabulary(limit = 400) {
-    const seen = new Set();
-    const out = [];
-    for (const w of words) {
-      if (w.norm.length < 4 || seen.has(w.norm)) continue;
-      seen.add(w.norm);
-      out.push(w.raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''));
-    }
-    return out.sort((a, b) => b.length - a.length).slice(0, limit);
-  }
-
   return {
     lines,
     layout,
@@ -370,7 +357,6 @@ function createScriptTracker(scriptText) {
     step,
     reset,
     position,
-    vocabulary,
     get currentLine() { return position().lineIndex; }
   };
 }

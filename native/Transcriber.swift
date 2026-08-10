@@ -21,7 +21,6 @@ import AVFoundation
 
 let INPUT_RATE = 16000.0
 let EMIT_WORD_LIMIT = 16   // the matcher only probes the last few words
-let READ_CHUNK = 3200      // 100 ms of 16 kHz mono Int16
 
 func emit(_ payload: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -36,19 +35,10 @@ func lastWords(_ text: String, _ limit: Int) -> String {
     return parts.suffix(limit).joined(separator: " ")
 }
 
-// Words from the script, used to bias recognition. Passed as a file rather than
-// on argv: a script's vocabulary runs to hundreds of entries and can contain
-// anything, neither of which belongs in a command line.
-func loadVocabulary(_ path: String?) -> [String] {
-    guard let path, let text = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
-    return text.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
-}
-
 @main
 struct Main {
     static func main() async {
         let requested = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "en-US"
-        let vocabulary = loadVocabulary(CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : nil)
 
         guard SpeechTranscriber.isAvailable else {
             emit(["type": "error", "message": "On-device speech recognition is not available on this Mac."])
@@ -99,23 +89,7 @@ struct Main {
 
         let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
 
-        // A teleprompter knows what is about to be said, so the script's own
-        // vocabulary is offered to the recogniser as context. Measured on
-        // synthesised speech this changed no output at all — the model is
-        // already confident there — so it is kept as the documented hint it is,
-        // not relied upon. The matcher's phonetic fallback is what actually
-        // rescues a misspelt proper noun.
-        let context = AnalysisContext()
-        if !vocabulary.isEmpty {
-            context.contextualStrings = [.general: vocabulary]
-        }
-
-        let analyzer = SpeechAnalyzer(
-            inputSequence: stream,
-            modules: [transcriber],
-            options: nil,
-            analysisContext: context
-        )
+        let analyzer = SpeechAnalyzer(inputSequence: stream, modules: [transcriber])
 
         // Results arrive as a growing "volatile" transcript for the current
         // utterance, then once more marked final. Both drive the scroll: the
@@ -144,8 +118,7 @@ struct Main {
 
         // Analysis already began: the analyzer was constructed with the input
         // sequence, so there is no separate start step to take here.
-        emit(["type": "ready", "onDevice": true, "locale": locale.identifier(.bcp47),
-              "biasedTerms": vocabulary.count])
+        emit(["type": "ready", "onDevice": true, "locale": locale.identifier(.bcp47)])
 
         // Pump stdin. Blocking reads belong off the cooperative pool, hence the
         // detached task.

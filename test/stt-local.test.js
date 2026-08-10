@@ -209,32 +209,3 @@ test('stopping when never started is harmless', () => {
   assert.doesNotThrow(() => stt.stop());
 });
 
-test('vocabulary is handed over as a file argument, not on the command line', () => {
-  const fs = require('fs');
-  let capturedArgs = null;
-  const child = fakeHelper();
-  const stt = createLocalSTT({
-    binary: '/fake/helper',
-    spawnFn: (_exe, args) => { capturedArgs = args; return child; },
-    onReady() {}, onInterim() {}, onTranscript() {}, onError() {}, onExit() {}
-  });
-  stt.start(['Kubernetes', 'Grafana']);
-
-  assert.equal(capturedArgs[0], 'en-US');
-  assert.ok(capturedArgs[1], 'a vocabulary file path is passed');
-  assert.equal(fs.readFileSync(capturedArgs[1], 'utf8'), 'Kubernetes\nGrafana');
-
-  stt.stop();
-  assert.equal(fs.existsSync(capturedArgs[1]), false, 'and cleaned up afterwards');
-});
-
-test('no vocabulary means no extra argument', () => {
-  let capturedArgs = null;
-  const child = fakeHelper();
-  createLocalSTT({
-    binary: '/fake/helper',
-    spawnFn: (_exe, args) => { capturedArgs = args; return child; },
-    onReady() {}, onInterim() {}, onTranscript() {}, onError() {}, onExit() {}
-  }).start([]);
-  assert.deepEqual(capturedArgs, ['en-US']);
-});

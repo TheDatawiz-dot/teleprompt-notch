@@ -5,7 +5,6 @@
 
 const { spawn } = require('child_process');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 // In a packaged build the helper ships inside the app bundle; in development it
@@ -40,14 +39,7 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, o
   let child = null;
   let buffer = '';
   let stopping = false;
-  let vocabFile = null;
   let lastStderr = '';
-
-  function cleanupVocab() {
-    if (!vocabFile) return;
-    try { fs.unlinkSync(vocabFile); } catch { /* already gone */ }
-    vocabFile = null;
-  }
 
   function handleLine(line) {
     if (!line.trim()) return;
@@ -55,7 +47,7 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, o
     try { msg = JSON.parse(line); } catch { return; }
     switch (msg.type) {
       case 'ready':
-        console.log(`[stt] ready — on-device: ${msg.onDevice}, locale: ${msg.locale}, biased terms: ${msg.biasedTerms}`);
+        console.log(`[stt] ready — on-device: ${msg.onDevice}, locale: ${msg.locale}`);
         onReady(msg);
         break;
       case 'interim': onInterim(msg.text, msg.alternatives || []); break;
@@ -73,25 +65,12 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, o
     }
   }
 
-  // `vocabulary` biases recognition toward the words this script actually uses.
-  // It goes in a file rather than on argv: it runs to hundreds of entries drawn
-  // from arbitrary user text, and neither belongs in a command line.
-  function start(vocabulary = []) {
+  function start() {
     if (child) return true;
     const reason = binary ? null : unavailableReason();
     if (reason) { onError(reason); return false; }
 
     const args = ['en-US'];
-    if (vocabulary.length) {
-      try {
-        vocabFile = path.join(os.tmpdir(), `notchprompt-vocab-${process.pid}-${Date.now()}.txt`);
-        fs.writeFileSync(vocabFile, vocabulary.join('\n'), { mode: 0o600 });
-        args.push(vocabFile);
-      } catch {
-        vocabFile = null; // biasing is an optimisation, not a requirement
-      }
-    }
-
     stopping = false;
     lastStderr = '';
     child = launch(exe, args, { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -112,13 +91,11 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, o
 
     child.on('error', (err) => {
       child = null;
-      cleanupVocab();
       onError('Could not start the speech helper: ' + err.message);
     });
 
     child.on('exit', (code) => {
       child = null;
-      cleanupVocab();
       if (stopping) return;
       // A non-zero exit before stop() means the helper refused to run at all.
       // If it printed a JSON error, that has already been surfaced; if it died
@@ -142,14 +119,13 @@ function createLocalSTT({ onInterim, onTranscript, onError, onReady, onNotice, o
   }
 
   function stop() {
-    if (!child) { cleanupVocab(); return; }
+    if (!child) return;
     stopping = true;
     try { child.stdin.end(); } catch { /* already gone */ }
     const dying = child;
     child = null;
     // Give it a moment to flush a final result, then make sure it is gone.
     setTimeout(() => { if (!dying.killed) dying.kill(); }, 1200).unref();
-    cleanupVocab();
   }
 
   return { start, stop, sendAudio, get running() { return !!child; } };

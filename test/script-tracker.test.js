@@ -236,25 +236,6 @@ test('tokenizeSpoken expands contractions into separate tokens', () => {
   assert.equal(tokenizeSpoken('let us go').length, 3);
 });
 
-test('vocabulary offers the script\'s distinctive words, longest first', () => {
-  const t = createScriptTracker('We deployed Kubernetes to the staging cluster today.');
-  const vocab = t.vocabulary();
-  assert.ok(vocab.includes('Kubernetes'), 'distinctive words are included');
-  assert.ok(!vocab.includes('to'), 'short filler words are not worth biasing');
-  assert.ok(vocab[0].length >= vocab[vocab.length - 1].length, 'longest first');
-});
-
-test('vocabulary strips punctuation and de-duplicates', () => {
-  const t = createScriptTracker('"Kubernetes," again: Kubernetes!');
-  const vocab = t.vocabulary();
-  assert.deepEqual(vocab.filter((w) => w.toLowerCase() === 'kubernetes'), ['Kubernetes']);
-});
-
-test('vocabulary is capped', () => {
-  const many = Array.from({ length: 1000 }, (_, i) => `distinctword${i}`).join(' ');
-  assert.ok(createScriptTracker(many).vocabulary(50).length <= 50);
-});
-
 // ---- phonetic fallback: the reader said the word, the recogniser misspelt it ----
 
 test('a misheard proper noun still tracks, via its sound', () => {

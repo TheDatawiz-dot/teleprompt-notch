@@ -15,50 +15,67 @@ speed to guess at.
 It sits in a small window just under the menu bar, stays on top of whatever else
 you are doing, and can hide itself from screen recordings.
 
-> **Demo:** a recording is not in the repository yet. It needs a quiet screen and
-> a real voice, and a staged one would misrepresent how this behaves. Until then,
-> the [How it works](#how-it-works) section describes the behaviour precisely and
-> `bench/track-accuracy.js` reports measured numbers you can reproduce.
+> **Demo:** not recorded yet. It needs a quiet screen and a real voice, and a
+> staged one would misrepresent how this behaves. The shot list is written up in
+> [docs/demo.md](docs/demo.md).
 
----
+## Download
+
+**[Download the latest .dmg →](https://github.com/TheDatawiz-dot/teleprompt-notch/releases/latest)**
+
+Open it, drag the app to Applications, done. No terminal, no account, no API key.
+
+**Requires macOS 26 (Tahoe) or later, on Apple Silicon.** The on-device speech API
+this is built on does not exist before macOS 26, and the build is `arm64` only —
+no Intel Mac can run macOS 26 anyway.
+
+<details>
+<summary><b>First launch: macOS will say the developer cannot be verified</b></summary>
+
+The app is **not signed or notarised** — that needs a paid Apple Developer
+account. So the first launch takes one extra step:
+
+1. **Right-click** (or Control-click) the app → **Open**
+2. Click **Open** in the dialog
+
+Once only. After that it opens normally. If you would rather not run unsigned
+software, build it yourself — see [Development](#development).
+</details>
+
+### Permissions
+
+It asks for **the microphone**, once, the first time you press Listen. That is the
+only permission it requests — no Screen Recording, no Accessibility, no Full Disk
+Access, and no speech-recognition permission.
+
+## Privacy
+
+Your voice never leaves your Mac, and the app makes no network requests at all.
+Enforced, not just promised:
+
+| Guarantee | How |
+|---|---|
+| No network requests | Refused at the Electron session unless the app is loading its own files; CSP sets `connect-src 'none'` |
+| Cannot acquire networking later | Zero runtime dependencies, asserted by a test that fails the build |
+| No network permission | The hardened-runtime entitlements omit `network.client` |
+| Recognition never reaches a server | The helper requires on-device recognition and refuses to start rather than fall back |
+| No telemetry or analytics | Asserted by a test that greps shipped source |
+| Audio is never written to disk | Microphone → local helper over a pipe, and nowhere else |
+
+Your script is saved locally so it is there next launch, in
+`~/Library/Application Support/`, written owner-only.
 
 ## Features
 
-- **Follows your speech**, word by word, rather than scrolling on a timer
-- **Transcription runs on your Mac** — no API key, no account, no sign-up
-- **No network access at all**, blocked at the session and by the app's CSP
-- **No telemetry**, no analytics, no runtime dependencies whatsoever
+- **Follows your speech** word by word, instead of scrolling on a timer
+- **Transcription on your Mac** — no API key, no account, no sign-up
+- **Stays on top** of whatever else you are doing
 - **Hides from screen recordings** on a keystroke, with an indicator so you always
   know whether it is hidden
 - **Tolerant of real reading** — contractions, numbers read aloud, mispronounced
   proper nouns, repeated lines, paragraph breaks
 - **Works without the microphone too** — constant-speed auto-scroll, arrow keys,
-  click any line to jump
-
-## Download
-
-Grab the `.dmg` from [Releases](https://github.com/TheDatawiz-dot/teleprompt-notch/releases),
-open it, and drag the app to Applications.
-
-**Requires macOS 26 (Tahoe) or later.** The on-device speech API this is built on
-does not exist before that.
-
-### First launch: Gatekeeper
-
-The app is **not signed or notarised** — that needs a paid Apple Developer
-account. macOS will therefore refuse to open it on the first attempt.
-
-1. Right-click (or Control-click) the app → **Open**
-2. Confirm **Open** in the dialog
-
-You only do this once. If you would rather not run unsigned software, build it
-yourself — see [Development](#development).
-
-### Permissions
-
-The app asks for **the microphone**, once, the first time you press Listen. That
-is the only permission it requests. It does not ask for Screen Recording, Full
-Disk Access, Accessibility, or speech-recognition permission.
+  or click any line to jump
 
 ## How it works
 
@@ -106,22 +123,6 @@ Full detail, including the approaches that failed: **[docs/engineering-notes.md]
 If another app already owns one of these, the app says so on launch rather than
 leaving you with a key that quietly does nothing.
 
-## Privacy
-
-The claim is that no audio leaves your Mac and the app makes no network requests.
-That is enforced rather than promised:
-
-| Guarantee | How it is enforced |
-|---|---|
-| No network requests | Every request not loading the app's own files is refused at the Electron session; a CSP sets `connect-src 'none'` |
-| Cannot gain networking later | Zero runtime dependencies, asserted by a test that fails the build |
-| No network permission | The hardened-runtime entitlements deliberately omit `network.client` |
-| Recognition never goes to a server | The helper requires on-device recognition and refuses to start rather than fall back |
-| No telemetry | Asserted by a test that greps shipped source |
-| Audio is never stored | It goes from the microphone to the local helper over a pipe, and nowhere else |
-
-Your script is saved locally, so it is still there next launch — in
-`~/Library/Application Support/`, written owner-only.
 
 ## Limitations
 
@@ -203,8 +204,27 @@ node bench/track-accuracy.js   # matcher accuracy against the transcript
 node bench/lead-sweep.js       # scroll-lead values vs measured latency
 ```
 
-See **[bench/README.md](bench/README.md)** for what those numbers mean and how to
-add your own recordings.
+See **[bench/README.md](bench/README.md)** for what those numbers mean, and
+**[bench/corpus/README.md](bench/corpus/README.md)** to record your own samples.
+
+### The measurement that is still missing
+
+Everything above measures whether the cursor lands on the right word. None of it
+measures whether reading from this feels good, which is the question that decides
+whether the product is any use. [`docs/human-test.md`](docs/human-test.md) is a
+ten-minute protocol for answering it, and it is currently unanswered.
+
+## Documentation
+
+| | |
+|---|---|
+| [Engineering notes](docs/engineering-notes.md) | How the matcher works, and the experiments that disproved their own hypotheses |
+| [Human test protocol](docs/human-test.md) | Ten minutes to answer what benchmarks cannot |
+| [Benchmarks](bench/README.md) | What the numbers mean |
+| [Recording a corpus](bench/corpus/README.md) | Turning your voice into measurable data |
+| [Demo shot list](docs/demo.md) | How to record the demo |
+| [Licensing and provenance](docs/licensing.md) | Including a GPL conflict found and resolved |
+| [Changelog](CHANGELOG.md) | What changed in v0.2.0 |
 
 ## License
 

@@ -1,0 +1,17 @@
+This script asks you to make mistakes on purpose. Read the line as written,
+then correct yourself out loud, then continue.
+
+Our revenue last year was four million dollars.
+  (Say "four" as written, then say: "sorry, five million dollars", then go on.)
+
+The deployment finished on Tuesday morning.
+  (Say "Tuesday", then say: "no, it was Wednesday", then continue.)
+
+We reduced latency by thirty percent across the whole fleet.
+  (Say "thirty", then say: "actually forty percent", then keep reading.)
+
+The team in Berlin owns that service now.
+  (Say "Berlin", then say: "I mean Munich", and carry on.)
+
+Now read this final paragraph straight through with no corrections at all,
+so the benchmark can see how quickly tracking settles again afterwards.

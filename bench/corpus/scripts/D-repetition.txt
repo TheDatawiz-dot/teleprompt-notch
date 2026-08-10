@@ -1,0 +1,15 @@
+There are three topics I want to cover today.
+
+The first topic is speed. Speed matters because people abandon things that
+make them wait, and no amount of correctness makes up for that.
+
+The second topic is accuracy. Accuracy matters because a fast answer that
+is wrong is worse than a slow answer that is right.
+
+The third topic is cost. Cost matters because everything we just discussed
+has to be paid for somehow, in money or in time or in attention.
+
+The first topic was about waiting. The second topic was about being wrong.
+The third topic was about what it takes to fix either one.
+
+Those are the three topics. Let me know which one you want to start with.

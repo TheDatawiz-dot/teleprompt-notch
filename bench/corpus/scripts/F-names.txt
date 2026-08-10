@@ -1,0 +1,17 @@
+Let me introduce the team and the stack before we get into the details.
+
+Anirudh runs infrastructure out of Bengaluru. Siobhan handles the data
+pipeline from Dublin, and Kwame joined last month to work on reliability.
+
+We run Kubernetes on Graviton instances, with Grafana and Prometheus for
+observability, and Postgres behind PgBouncer for anything transactional.
+
+The ingestion path uses Kafka, the search layer is OpenSearch, and we use
+Terraform for absolutely everything, including the things where it is
+probably overkill.
+
+Nginx sits in front, Redis caches the expensive queries, and there is a
+small Rust service called Kestrel that nobody fully understands anymore.
+
+Xiaoling wrote most of it before she moved to the platform team, and it has
+not needed a change since, which tells you something.

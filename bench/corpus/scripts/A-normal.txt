@@ -1,0 +1,23 @@
+Welcome back to the show. I am glad you could join me today.
+
+Today I want to talk about something that has been on my mind for a while,
+which is how we decide what to build and what to leave alone.
+
+Every project starts with a list of things that sound useful. The hard part
+is not adding to that list. The hard part is crossing things off it.
+
+I have been guilty of this myself. I once spent three weeks on a feature
+that nobody asked for, and when it shipped, nobody noticed. That was a
+useful lesson, even though it was an expensive one.
+
+So the question I keep coming back to is simple. Does this change make the
+thing better for the person using it, or does it just make the project look
+more impressive from the outside?
+
+Those are not the same question, and it took me a long time to see that.
+
+Let me give you a concrete example from last month. We had a feature that
+worked correctly in every test we wrote, and people still could not use it.
+The logic was right and the experience was wrong.
+
+That is the gap I want to talk about today. Thanks for sticking with me.

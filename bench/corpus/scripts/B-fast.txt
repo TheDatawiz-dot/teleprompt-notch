@@ -1,0 +1,14 @@
+Read this section as quickly as you comfortably can, without stumbling on purpose.
+
+The build finished in under a minute, the tests all passed, the artifacts
+were uploaded, and the release went out before lunch, which almost never
+happens on a Friday.
+
+We shipped four changes this week. The first was a fix for the scrolling
+bug, the second was a performance improvement, the third was a small
+cleanup, and the fourth was documentation that should have existed already.
+
+None of that is glamorous work, but it is the work that makes the next
+week easier, and that compounds faster than anything else we could do.
+
+Keep going at this pace right to the end of this line, and then stop.

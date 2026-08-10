@@ -3,5 +3,9 @@ dist/
 *.log
 .DS_Store
 native/build/
-dist/
-bench/corpus/
+# Recordings of your own voice stay on your machine; the docs that explain
+# how to make them are tracked.
+bench/corpus/*
+!bench/corpus/.gitkeep
+!bench/corpus/README.md
+!bench/corpus/scripts/

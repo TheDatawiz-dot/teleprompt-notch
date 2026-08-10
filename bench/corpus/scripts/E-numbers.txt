@@ -1,0 +1,14 @@
+Here are the numbers from the last quarter.
+
+Revenue grew 23 percent, from 4.2 million to 5.1 million dollars.
+
+We shipped our 1st major release on March 3rd, 2025, and the 2nd followed
+eleven weeks later on May 19th.
+
+Our error rate dropped from 0.8 percent to 0.15 percent, which is roughly a
+5 times improvement, though I would not read too much into a single quarter.
+
+We now serve 1,200 customers across 17 countries, up from 940 last year.
+
+The 3rd quarter target is 6 million, and I think we will land between 5.7
+and 6.4, depending on how the last 2 weeks of September go.

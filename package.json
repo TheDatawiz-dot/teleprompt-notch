@@ -14,7 +14,8 @@
     "dist:dir": "npm run build:native && electron-builder --mac --dir",
     "verify:artifact": "node scripts/verify-artifact.js",
     "check": "node scripts/check-imports.js",
-    "pretest": "node scripts/check-imports.js"
+    "pretest": "node scripts/check-imports.js",
+    "release": "npm run dist && npm run verify:artifact && node -e \"require('child_process').execSync('cd dist && shasum -a 256 *.dmg *.zip > SHA256SUMS.txt',{stdio:'inherit'})\""
   },
   "build": {
     "appId": "com.notchprompt.app",
